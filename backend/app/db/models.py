@@ -50,6 +50,7 @@ class Product(Base):
     sub_category: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_veg: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     quantity: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    low_stock_threshold: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=5)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -59,6 +60,7 @@ class Inventory(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     unit: Mapped[str] = mapped_column(String(20), nullable=False)
     quantity: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    low_stock_threshold: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=10)
 
 
 class DiningTable(Base):

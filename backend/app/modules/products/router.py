@@ -21,15 +21,30 @@ class ProductIn(BaseModel):
     sub_category: str | None = None
     is_veg: bool = True
     quantity: float = 0
+    low_stock_threshold: float = 5
     is_active: bool = True
 
 
-@router.get("")
+class ProductOut(BaseModel):
+    id: int
+    name: str
+    price: float
+    category: str
+    sub_category: str | None = None
+    is_veg: bool
+    quantity: float
+    low_stock_threshold: float
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("", response_model=list[ProductOut])
 def list_products(db: Session = Depends(get_db)):
     return db.query(Product).filter(Product.is_active.is_(True)).all()
 
 
-@router.post("")
+@router.post("", response_model=ProductOut)
 def create_product(payload: ProductIn, db: Session = Depends(get_db), _=Depends(require_roles("admin", "manager"))):
     product = Product(**payload.model_dump())
     db.add(product)
@@ -38,7 +53,7 @@ def create_product(payload: ProductIn, db: Session = Depends(get_db), _=Depends(
     return product
 
 
-@router.patch("/{product_id}")
+@router.patch("/{product_id}", response_model=ProductOut)
 def update_product(product_id: int, payload: ProductIn, db: Session = Depends(get_db), _=Depends(require_roles("admin", "manager"))):
     product = db.get(Product, product_id)
     if not product:
@@ -46,6 +61,7 @@ def update_product(product_id: int, payload: ProductIn, db: Session = Depends(ge
     for key, value in payload.model_dump().items():
         setattr(product, key, value)
     db.commit()
+    db.refresh(product)
     return product
 
 

@@ -169,10 +169,21 @@ export default function MenuPage() {
 
   const selectedCatObj = categories.find(c => c.name === form.category);
 
+  const totalCount = products.length;
+  const vegCount = products.filter(p => p.is_veg).length;
+  const nonVegCount = totalCount - vegCount;
+
   return (
     <div className="page">
       <div className="topbar">
-        <h1>DISH MANAGEMENT</h1>
+        <div>
+          <h1 style={{margin: 0}}>DISH MANAGEMENT</h1>
+          <div style={{display: 'flex', gap: '1rem', marginTop: '0.5rem', fontSize: '0.9rem', background: 'var(--card-bg)', padding: '0.25rem 0.75rem', borderRadius: '1rem', border: '1px solid var(--border)', display: 'inline-flex'}}>
+            <span style={{color: 'var(--text-dark)'}}>Total: <strong>{totalCount}</strong></span>
+            <span style={{color: 'var(--success)'}}>🟩 Veg: <strong>{vegCount}</strong></span>
+            <span style={{color: 'var(--danger)'}}>🟥 Non-Veg: <strong>{nonVegCount}</strong></span>
+          </div>
+        </div>
         <div className="row">
           <button className="btn-secondary" onClick={handleDownloadSample} style={{marginRight: '0.5rem', background: 'transparent', border: '1px solid var(--border)'}}>⬇️ Sample CSV</button>
           <input type="file" accept=".csv" style={{display: 'none'}} ref={fileInputRef} onChange={handleFileUpload} />

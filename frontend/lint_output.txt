@@ -1,0 +1,50 @@
+
+> frontend@0.0.0 lint
+> eslint .
+
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/components/auth/RoleBasedComponent.tsx
+  19:11  error  'hasRole' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/components/ui/Button.tsx
+  55:18  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/components/ui/Input.tsx
+  4:18  error  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/contexts/AuthContext.tsx
+  164:14  error  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/features/auth/pages/LoginPage.tsx
+  39:25  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/features/cashier/pages/BillingPage.tsx
+  51:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/hooks/useWebSocket.ts
+   29:35  error  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-explicit-any
+  116:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/hooks/useWebSocket.ts:116:7
+  114 |   useEffect(() => {
+  115 |     if (autoConnect) {
+> 116 |       connect();
+      |       ^^^^^^^ Avoid calling setState() directly within an effect
+  117 |     }
+  118 |
+  119 |     return () => {  react-hooks/set-state-in-effect
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/services/websocket.ts
+  6:9  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/sri-jaya-shankaran/jspcs-pos/frontend/src/types/index.ts
+  66:12  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 10 problems (10 errors, 0 warnings)
+

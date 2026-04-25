@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: restaurant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      # <-- add this port mapping
+      - "5432:5432" # <-- map container port 5432 to host port 5432
+    volumes:
+      - restaurant_db_data:/var/lib/postgresql/data
+    networks:
+      - restaurant_net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:postgres@postgres:5432/restaurant
+      APP_MODE: hybrid
+      SECRET_KEY: restaurant-secret-2024
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    networks:
+      - restaurant_net
+
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    networks:
+      - restaurant_net
+
+volumes:
+  restaurant_db_data:
+
+networks:
+  restaurant_net:
+    driver: bridge

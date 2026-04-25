@@ -1,0 +1,80 @@
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+import csv
+import io
+
+from app.core.deps import require_roles
+from app.db.models import Product
+from app.db.session import get_db
+
+router = APIRouter(prefix="/products", tags=["products"])
+
+
+class ProductIn(BaseModel):
+    name: str
+    price: float
+    category: str
+    quantity: float = 0
+    is_active: bool = True
+
+
+@router.get("")
+def list_products(db: Session = Depends(get_db)):
+    return db.query(Product).filter(Product.is_active.is_(True)).all()
+
+
+@router.post("")
+def create_product(payload: ProductIn, db: Session = Depends(get_db), _=Depends(require_roles("admin", "manager"))):
+    product = Product(**payload.model_dump())
+    db.add(product)
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.patch("/{product_id}")
+def update_product(product_id: int, payload: ProductIn, db: Session = Depends(get_db), _=Depends(require_roles("admin", "manager"))):
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    for key, value in payload.model_dump().items():
+        setattr(product, key, value)
+    db.commit()
+    return product
+
+
+@router.delete("/{product_id}")
+def delete_product(product_id: int, db: Session = Depends(get_db), _=Depends(require_roles("admin"))):
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.delete(product)
+    db.commit()
+    return {"message": "Product deleted"}
+
+
+@router.post("/bulk")
+async def bulk_upload_products(file: UploadFile = File(...), db: Session = Depends(get_db), _=Depends(require_roles("admin"))):
+    content = await file.read()
+    decoded = content.decode('utf-8')
+    reader = csv.DictReader(io.StringIO(decoded))
+    
+    count = 0
+    for row in reader:
+        try:
+            product = Product(
+                name=row.get('name'),
+                price=float(row.get('price', 0)),
+                category=row.get('category', 'General'),
+                quantity=float(row.get('quantity', 0)),
+                is_active=True
+            )
+            db.add(product)
+            count += 1
+        except Exception:
+            continue
+            
+    db.commit()
+    return {"message": f"Successfully imported {count} products"}

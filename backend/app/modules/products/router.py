@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 import csv
 import io
 
+from sqlalchemy.exc import IntegrityError
+
 from app.core.deps import require_roles
 from app.db.models import Product
 from app.db.session import get_db
@@ -16,6 +18,8 @@ class ProductIn(BaseModel):
     name: str
     price: float
     category: str
+    sub_category: str | None = None
+    is_veg: bool = True
     quantity: float = 0
     is_active: bool = True
 
@@ -50,9 +54,39 @@ def delete_product(product_id: int, db: Session = Depends(get_db), _=Depends(req
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    db.delete(product)
-    db.commit()
-    return {"message": "Product deleted"}
+    
+    try:
+        db.delete(product)
+        db.commit()
+        return {"message": "Product physically deleted"}
+    except IntegrityError:
+        db.rollback()
+        product.is_active = False
+        db.commit()
+        return {"message": "Product archived (soft-deleted) because it has order history"}
+
+class BulkDeleteIn(BaseModel):
+    ids: list[int]
+
+@router.post("/bulk-delete")
+def bulk_delete_products(payload: BulkDeleteIn, db: Session = Depends(get_db), _=Depends(require_roles("admin"))):
+    deleted_count = 0
+    archived_count = 0
+    
+    for pid in payload.ids:
+        product = db.get(Product, pid)
+        if product:
+            try:
+                db.delete(product)
+                db.commit()
+                deleted_count += 1
+            except IntegrityError:
+                db.rollback()
+                product.is_active = False
+                db.commit()
+                archived_count += 1
+                
+    return {"message": f"Successfully deleted {deleted_count} products. Archived {archived_count} products due to order history."}
 
 
 @router.post("/bulk")
@@ -68,6 +102,8 @@ async def bulk_upload_products(file: UploadFile = File(...), db: Session = Depen
                 name=row.get('name'),
                 price=float(row.get('price', 0)),
                 category=row.get('category', 'General'),
+                sub_category=row.get('sub_category'),
+                is_veg=str(row.get('is_veg', 'true')).lower() in ('true', '1', 'yes', 'y'),
                 quantity=float(row.get('quantity', 0)),
                 is_active=True
             )

@@ -14,6 +14,7 @@ from app.modules.products.router import router as products_router
 from app.modules.reports.router import router as reports_router
 from app.modules.tables.router import router as tables_router
 from app.modules.users.router import router as users_router
+from app.modules.categories.router import router as categories_router
 
 app = FastAPI(title=settings.app_name)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -27,6 +28,7 @@ app.include_router(billing_router, prefix="/api")
 app.include_router(tables_router, prefix="/api")
 app.include_router(kitchen_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
+app.include_router(categories_router, prefix="/api")
 
 
 @app.on_event("startup")

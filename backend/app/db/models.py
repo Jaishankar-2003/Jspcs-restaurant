@@ -29,12 +29,26 @@ class User(Base):
     role: Mapped[Role] = relationship()
 
 
+class Category(Base):
+    __tablename__ = "categories"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    subcategories: Mapped[list["SubCategory"]] = relationship(cascade="all, delete-orphan", lazy="selectin")
+
+class SubCategory(Base):
+    __tablename__ = "sub_categories"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+
 class Product(Base):
     __tablename__ = "products"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
     price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     category: Mapped[str] = mapped_column(String(80), nullable=False)
+    sub_category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    is_veg: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     quantity: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

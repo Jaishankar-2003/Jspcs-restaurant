@@ -7,6 +7,8 @@ interface Product {
   name: string;
   price: number;
   category: string;
+  total_stock: number;
+  reserved_stock: number;
 }
 
 interface CartItem extends Product {
@@ -31,8 +33,12 @@ export default function BillingPage() {
     });
   };
 
-  useEffect(() => {
+  const loadProducts = () => {
     client.get("/products").then(res => setProducts(res.data));
+  };
+
+  useEffect(() => {
+    loadProducts();
     client.get("/tables").then(res => setTables(res.data.filter((t: any) => t.status === 'free')));
     loadBillRequests();
     
@@ -50,8 +56,17 @@ export default function BillingPage() {
   }, []);
 
   const addToCart = (p: Product) => {
+    const available = p.total_stock - p.reserved_stock;
+    
     setCart(prev => {
       const existing = prev.find(item => item.id === p.id);
+      const currentQty = existing ? existing.quantity : 0;
+      
+      if (currentQty >= available) {
+        alert(`❌ Out of Stock! Only ${available} units of ${p.name} available.`);
+        return prev;
+      }
+
       if (existing) {
         return prev.map(item => item.id === p.id ? { ...item, quantity: item.quantity + 1 } : item);
       }
@@ -90,6 +105,7 @@ export default function BillingPage() {
           alert(`Takeaway Order #${orderId} Completed!`);
           setCart([]);
       }
+      loadProducts();
       loadBillRequests();
     } catch (err: any) {
       alert("Billing Failed: " + (err.response?.data?.detail || "Error"));
@@ -140,13 +156,39 @@ export default function BillingPage() {
           </div>
           
           <div className="product-grid" style={{opacity: selectedOrder ? 0.5 : 1, pointerEvents: selectedOrder ? 'none' : 'auto'}}>
-            {filteredProducts.map(p => (
-              <div key={p.id} className="product-card" onClick={() => addToCart(p)}>
-                <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{p.category}</div>
-                <div style={{fontWeight: 700, margin: '0.5rem 0'}}>{p.name}</div>
-                <div style={{color: 'var(--primary)', fontWeight: 800}}>₹{p.price}</div>
-              </div>
-            ))}
+            {filteredProducts.map(p => {
+              const avail = p.total_stock - p.reserved_stock;
+              return (
+                <div 
+                  key={p.id} 
+                  className={`product-card ${avail <= 0 ? 'sold-out' : ''}`} 
+                  onClick={() => avail > 0 && addToCart(p)}
+                  style={{ 
+                    position: 'relative',
+                    opacity: avail <= 0 ? 0.6 : 1,
+                    cursor: avail <= 0 ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{p.category}</div>
+                  <div style={{fontWeight: 700, margin: '0.5rem 0'}}>{p.name}</div>
+                  <div className="row" style={{justifyContent: 'space-between', alignItems: 'center'}}>
+                    <div style={{color: 'var(--primary)', fontWeight: 800}}>₹{p.price}</div>
+                    <div 
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: '0.4rem',
+                        background: avail <= 0 ? 'var(--danger)' : avail < 5 ? '#f59e0b' : 'var(--success)',
+                        color: 'white',
+                        fontWeight: 900
+                      }}
+                    >
+                      {avail <= 0 ? 'SOLD OUT' : `${avail} Left`}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="cart-items">
@@ -175,13 +217,17 @@ export default function BillingPage() {
           <div className="card" style={{background: 'var(--accent)', border: '2px solid var(--primary)'}}>
             <h3>🔔 Bill Notifications</h3>
             <div style={{display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem'}}>
-                {billRequests.map(br => (
-                    <div key={br.id} className="card" style={{padding: '1rem', cursor: 'pointer', border: '1px solid var(--primary)'}} onClick={() => loadOrderToPos(br)}>
-                        <div style={{fontWeight: 800}}>🪑 Table {br.table_id}</div>
-                        <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>Amount: ₹{br.items?.reduce((acc: number, i: any) => acc + (i.price * i.quantity), 0).toFixed(2)}</div>
-                        <button className="btn-primary mt-4" style={{padding: '0.4rem', width: '100%', fontSize: '0.8rem'}}>PROCESS BILL</button>
-                    </div>
-                ))}
+                {billRequests.map(br => {
+                    const activeTotal = br.items?.filter((i: any) => i.status !== 'cancelled')
+                        .reduce((acc: number, i: any) => acc + (parseFloat(i.price) * i.quantity), 0) || 0;
+                    return (
+                        <div key={br.id} className="card" style={{padding: '1rem', cursor: 'pointer', border: '1px solid var(--primary)'}} onClick={() => loadOrderToPos(br)}>
+                            <div style={{fontWeight: 800}}>🪑 Table {br.table_id}</div>
+                            <div style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>Amount: ₹{activeTotal.toFixed(2)}</div>
+                            <button className="btn-primary mt-4" style={{padding: '0.4rem', width: '100%', fontSize: '0.8rem'}}>PROCESS BILL</button>
+                        </div>
+                    );
+                })}
                 {billRequests.length === 0 && <p style={{opacity: 0.5, textAlign: 'center'}}>No pending bill requests</p>}
             </div>
           </div>

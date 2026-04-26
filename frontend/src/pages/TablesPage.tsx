@@ -237,6 +237,26 @@ export default function TablesPage() {
     }
   };
 
+  const doCancelOrder = async () => {
+    setDialog(null);
+    if (!activeOrder) return;
+    try {
+      await client.patch(`/orders/${activeOrder.id}/status`, null, {
+        params: { status: "cancelled" },
+      });
+      showToast("success", "🔴 Order Cancelled and Table Reset.");
+      setSelectedTable(null);
+      load();
+    } catch (err: any) {
+      showToast("error", "❌ " + (err.response?.data?.detail || "Could not cancel order"));
+    }
+  };
+
+  const cancelOrder = () => {
+    if (!activeOrder) return;
+    openDialog("CANCEL ENTIRE ORDER and clear this table? All stock will be restored.", doCancelOrder);
+  };
+
   const requestBill = () => {
     if (!activeOrder) return;
     openDialog("Send bill request to counter?", doRequestBill);
@@ -337,7 +357,18 @@ export default function TablesPage() {
                   </div>
                 )}
               </div>
-              <button className="btn-secondary" onClick={() => setSelectedTable(null)}>CLOSE</button>
+              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                {activeOrder && (
+                  <button 
+                    className="btn-secondary" 
+                    style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                    onClick={cancelOrder}
+                  >
+                    🗑️ CLEAR TABLE
+                  </button>
+                )}
+                <button className="btn-secondary" onClick={() => setSelectedTable(null)}>CLOSE</button>
+              </div>
             </div>
 
             {/* Body — 3 columns */}

@@ -146,11 +146,12 @@ def update_order_status(order_id: int, status: str, db: Session = Depends(get_db
     
     if status == "cancelled":
         for item in order.items:
-            # Release reservations
-            db.execute(
-                text("UPDATE products SET reserved_stock = reserved_stock - :qty WHERE id = :id"),
-                {"qty": item.quantity, "id": item.product_id}
-            )
+            # Only release stock for items that weren't already cancelled individually
+            if item.status != "cancelled":
+                db.execute(
+                    text("UPDATE products SET reserved_stock = reserved_stock - :qty WHERE id = :id"),
+                    {"qty": item.quantity, "id": item.product_id}
+                )
         
     if status in ["delivered", "completed", "cancelled"]:
         for item in order.items:

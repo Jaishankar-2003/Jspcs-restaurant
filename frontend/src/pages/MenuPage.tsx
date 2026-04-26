@@ -17,7 +17,7 @@ export default function MenuPage() {
   const [showCategoryManager, setShowCategoryManager] = useState(false);
 
   const [editProduct, setEditProduct] = useState<any>(null);
-  const [form, setForm] = useState({ name: "", price: 0, category: "", sub_category: "", is_veg: true, quantity: 0 });
+  const [form, setForm] = useState({ name: "", price: 0, category: "", sub_category: "", is_veg: true, total_stock: 0 });
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   // Category management state
@@ -56,7 +56,7 @@ export default function MenuPage() {
       } else {
         await client.post("/products", form);
       }
-      setForm({ name: "", price: 0, category: "", sub_category: "", is_veg: true, quantity: 0 });
+      setForm({ name: "", price: 0, category: "", sub_category: "", is_veg: true, total_stock: 0 });
       setShowAdd(false);
       setEditProduct(null);
       loadData();
@@ -65,7 +65,7 @@ export default function MenuPage() {
 
   const startEdit = (p: any) => {
     setEditProduct(p);
-    setForm({ name: p.name, price: p.price, category: p.category || "", sub_category: p.sub_category || "", is_veg: p.is_veg, quantity: p.quantity });
+    setForm({ name: p.name, price: p.price, category: p.category || "", sub_category: p.sub_category || "", is_veg: p.is_veg, total_stock: p.total_stock });
     setShowAdd(true);
   };
 
@@ -192,7 +192,7 @@ export default function MenuPage() {
           <button className="btn-primary" onClick={() => {
             setShowAdd(true);
             setEditProduct(null);
-            setForm({ name: "", price: 0, category: "", sub_category: "", is_veg: true, quantity: 0 });
+            setForm({ name: "", price: 0, category: "", sub_category: "", is_veg: true, total_stock: 0 });
           }}>+ ADD NEW DISH</button>
           <Link to="/dashboard" className="btn-secondary">Back</Link>
         </div>
@@ -300,7 +300,7 @@ export default function MenuPage() {
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Initial Stock</label>
-                  <input type="number" className="input-field" value={form.quantity || ''} onChange={e => setForm({ ...form, quantity: parseFloat(e.target.value) || 0 })} placeholder="0" />
+                  <input type="number" className="input-field" value={form.total_stock || ''} onChange={e => setForm({ ...form, total_stock: parseFloat(e.target.value) || 0 })} placeholder="0" />
                 </div>
                 <div className="form-group" style={{ margin: 0 }}>
                   <label>Category</label>
@@ -434,10 +434,28 @@ export default function MenuPage() {
             {/* Dish Info */}
             <h2 style={{ margin: '0', fontSize: '1.4rem', color: 'var(--text-dark)' }}>{p.name}</h2>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 'auto', paddingTop: '1rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: 'auto', paddingTop: '1rem' }}>
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--primary)' }}>₹{p.price}</div>
-              <div style={{ fontSize: '20px', color: 'var(--text-muted)', background: 'var(--bg-light)', padding: '0.25rem 0.75rem', borderRadius: '1rem', border: '1px solid var(--border)' }}>
-                Stock: <strong style={{ color: p.quantity > 10 ? 'var(--success)' : 'var(--danger)' }}>{p.quantity}</strong>
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                background: 'var(--bg-light)', 
+                padding: '0.5rem 0.75rem', 
+                borderRadius: '0.6rem', 
+                border: '1px solid var(--border)',
+                fontSize: '0.85rem'
+              }}>
+                <div style={{ display: 'flex', gap: '0.75rem', color: 'var(--text-muted)' }}>
+                  <span>Tot: <strong>{p.total_stock}</strong></span>
+                  <span>Res: <strong style={{ color: 'var(--primary)' }}>{p.reserved_stock}</strong></span>
+                </div>
+                <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: '0.75rem' }}>
+                  Avail: <strong style={{ 
+                    fontSize: '1.1rem', 
+                    color: (p.total_stock - p.reserved_stock) > 0 ? 'var(--success)' : 'var(--danger)' 
+                  }}>{p.total_stock - p.reserved_stock}</strong>
+                </div>
               </div>
             </div>
           </div>

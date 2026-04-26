@@ -14,10 +14,16 @@ def complete_billing(db: Session, order_id: int, payment_type: str) -> Invoice:
     items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
     
     for item in items:
+        if item.status == "cancelled":
+            continue
+            
         total += float(item.price) * item.quantity
         product = db.get(Product, item.product_id)
         if product:
-            product.quantity = float(product.quantity) - item.quantity
+            # Finalize stock: Reduce physical stock, clear reservation, and track as sold
+            product.total_stock -= item.quantity
+            product.reserved_stock -= item.quantity
+            product.sold_stock += item.quantity
             
     order.status = "completed"
     

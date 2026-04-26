@@ -26,7 +26,7 @@ def kitchen_orders(db: Session = Depends(get_db), _=Depends(require_roles("kitch
                 "table_id": o.table_id,
                 "token_number": o.token_number,
                 "status": o.status,
-                "waiter_note": o.waiter_note,
+                "waiter_note": o.waiter_note or "NO NOTE",
                 "created_at": o.created_at,
                 "items": [
                     {

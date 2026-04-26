@@ -3,6 +3,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -32,6 +33,7 @@ class UpdateItemsIn(BaseModel):
 
 @router.post("")
 def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depends(require_roles("cashier", "admin", "manager"))):
+    print(f"DEBUG: Creating order with payload: {payload.model_dump()}")
     if settings.app_mode == "fast_food" and payload.type == "dine_in":
         raise HTTPException(status_code=400, detail="Dine-in disabled in fast_food mode")
     
@@ -54,9 +56,26 @@ def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depend
     db.flush()
     
     for i in payload.items:
+        # Atomic Stock Reservation
+        # Update only if (total_stock - reserved_stock) >= requested_quantity
+        res = db.execute(
+            text("""
+                UPDATE products 
+                SET reserved_stock = reserved_stock + :qty
+                WHERE id = :id AND (total_stock - reserved_stock) >= :qty
+            """),
+            {"qty": i.quantity, "id": i.product_id}
+        )
+        if res.rowcount == 0:
+            # Check why it failed to give a better error message
+            p = db.get(Product, i.product_id)
+            avail = (p.total_stock - p.reserved_stock) if p else 0
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Insufficient stock for {p.name if p else 'Item'}. Available: {avail}, Requested: {i.quantity}"
+            )
+
         product = db.get(Product, i.product_id)
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product not found: {i.product_id}")
         db.add(OrderItem(order_id=order.id, product_id=i.product_id, quantity=i.quantity, price=product.price))
     
     if payload.type == "dine_in" and payload.table_id:
@@ -72,11 +91,29 @@ def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depend
 
 @router.patch("/{order_id}/items")
 def update_order_items(order_id: int, payload: UpdateItemsIn, db: Session = Depends(get_db), _=Depends(require_roles("cashier", "admin", "manager"))):
+    print(f"DEBUG: Updating order {order_id} with payload: {payload.model_dump()}")
     order = db.get(Order, order_id)
     if not order or order.status in ["completed", "cancelled"]:
         raise HTTPException(status_code=400, detail="Order not found or closed")
     
     for i in payload.items:
+        # Atomic Stock Reservation for updates
+        res = db.execute(
+            text("""
+                UPDATE products 
+                SET reserved_stock = reserved_stock + :qty
+                WHERE id = :id AND (total_stock - reserved_stock) >= :qty
+            """),
+            {"qty": i.quantity, "id": i.product_id}
+        )
+        if res.rowcount == 0:
+            p = db.get(Product, i.product_id)
+            avail = (p.total_stock - p.reserved_stock) if p else 0
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Insufficient stock for {p.name if p else 'Item'}. Available: {avail}, Requested: {i.quantity}"
+            )
+
         existing_item = db.query(OrderItem).filter(
             OrderItem.order_id == order_id, 
             OrderItem.product_id == i.product_id,
@@ -107,6 +144,14 @@ def update_order_status(order_id: int, status: str, db: Session = Depends(get_db
     
     order.status = status
     
+    if status == "cancelled":
+        for item in order.items:
+            # Release reservations
+            db.execute(
+                text("UPDATE products SET reserved_stock = reserved_stock - :qty WHERE id = :id"),
+                {"qty": item.quantity, "id": item.product_id}
+            )
+        
     if status in ["delivered", "completed", "cancelled"]:
         for item in order.items:
             if item.status not in ["completed", "cancelled", "delivered"]:
@@ -121,6 +166,25 @@ def update_order_status(order_id: int, status: str, db: Session = Depends(get_db
             
     db.commit()
     return order
+
+
+@router.patch("/{order_id}/items/{item_id}/status")
+def update_item_status(order_id: int, item_id: int, status: str, db: Session = Depends(get_db), _=Depends(require_roles("cashier", "admin", "manager", "kitchen"))):
+    item = db.query(OrderItem).filter(OrderItem.id == item_id, OrderItem.order_id == order_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    # If cancelling, release the reserved stock
+    if status == "cancelled" and item.status != "cancelled":
+        db.execute(
+            text("UPDATE products SET reserved_stock = reserved_stock - :qty WHERE id = :id"),
+            {"qty": item.quantity, "id": item.product_id}
+        )
+    
+    item.status = status
+    db.commit()
+    db.refresh(item)
+    return item
 
 
 @router.get("")

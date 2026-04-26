@@ -33,9 +33,31 @@ app.include_router(categories_router, prefix="/api")
 
 @app.on_event("startup")
 def startup():
+    from sqlalchemy import text
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
+        # --- NEW STRICT STOCK MIGRATION ---
+        with engine.connect() as conn:
+            # Rename quantity to total_stock if it exists
+            try:
+                conn.execute(text("ALTER TABLE products RENAME COLUMN quantity TO total_stock;"))
+                conn.commit()
+                print("DEBUG: RENAMED quantity TO total_stock")
+            except Exception as e:
+                pass # Already renamed
+            
+            # Add other columns if they don't exist
+            try:
+                conn.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS reserved_stock NUMERIC(12,3) DEFAULT 0;"))
+                conn.execute(text("ALTER TABLE products ADD COLUMN IF NOT EXISTS sold_stock NUMERIC(12,3) DEFAULT 0;"))
+                conn.execute(text("UPDATE products SET reserved_stock = 0 WHERE reserved_stock IS NULL;"))
+                conn.execute(text("UPDATE products SET sold_stock = 0 WHERE sold_stock IS NULL;"))
+                conn.commit()
+                print("DEBUG: STOCK COLUMNS ADDED/VERIFIED")
+            except Exception as e:
+                print(f"DEBUG: Column addition failed: {e}")
+
         role_names = ["admin", "cashier", "kitchen", "manager"]
         for role_name in role_names:
             if not db.query(Role).filter(Role.name == role_name).first():

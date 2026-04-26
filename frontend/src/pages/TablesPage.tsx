@@ -6,7 +6,9 @@ interface Product {
   id: number;
   name: string;
   price: number;
-  quantity: number;
+  total_stock: number;
+  reserved_stock: number;
+  sold_stock: number;
   is_veg: boolean;
   category: string;
 }
@@ -106,11 +108,15 @@ export default function TablesPage() {
   }, [orders, selectedTable]);
 
   // Add item to cart
-  const addToTableCart = (p: Product) => {
-    if (p.quantity <= 0) {
+  const addToTableCart = (p: any) => {
+    const avail = p.total_stock - p.reserved_stock;
+    const inCart = cart.find(i => i.id === p.id)?.qty || 0;
+    
+    if (avail - inCart <= 0) {
       showToast("error", `❌ ${p.name} is out of stock`);
       return;
     }
+    
     setCart((prev) => {
       const exists = prev.find((i) => i.id === p.id);
       if (exists) return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
@@ -120,6 +126,17 @@ export default function TablesPage() {
 
   // Increase qty in cart
   const increaseQty = (id: number) => {
+    const product = products.find(p => p.id === id);
+    if (!product) return;
+    
+    const avail = product.total_stock - product.reserved_stock;
+    const inCart = cart.find(i => i.id === id)?.qty || 0;
+    
+    if (avail - inCart <= 0) {
+      showToast("error", `❌ No more stock available for ${product.name}`);
+      return;
+    }
+    
     setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty: i.qty + 1 } : i)));
   };
 
@@ -137,6 +154,7 @@ export default function TablesPage() {
   };
 
   const doSendToKitchen = async () => {
+    console.log("Sending order with note:", waiterNote);
     setDialog(null);
     setSubmitting(true);
     try {
@@ -163,6 +181,19 @@ export default function TablesPage() {
       showToast("error", "❌ " + (err.response?.data?.detail || "Could not send order"));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const cancelItem = async (itemId: number) => {
+    if (!activeOrder) return;
+    try {
+      await client.patch(`/orders/${activeOrder.id}/items/${itemId}/status`, null, {
+        params: { status: "cancelled" },
+      });
+      showToast("success", "🗑️ Item cancelled and stock restored.");
+      load();
+    } catch (err: any) {
+      showToast("error", "❌ " + (err.response?.data?.detail || "Could not cancel item"));
     }
   };
 
@@ -324,13 +355,28 @@ export default function TablesPage() {
                       <div
                         key={i.id}
                         className="row"
-                        style={{ justifyContent: "space-between", padding: "0.75rem 0.5rem", borderBottom: "1px solid var(--border)" }}
+                        style={{ 
+                          justifyContent: "space-between", 
+                          padding: "0.75rem 0.5rem", 
+                          borderBottom: "1px solid var(--border)",
+                          opacity: i.status === 'cancelled' ? 0.4 : 1,
+                          textDecoration: i.status === 'cancelled' ? 'line-through' : 'none'
+                        }}
                       >
-                        <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{i.product?.name}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          {i.status !== 'cancelled' && (
+                            <button 
+                              onClick={() => cancelItem(i.id)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: '1rem' }}
+                              title="Cancel Item"
+                            >🗑️</button>
+                          )}
+                          <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{i.product?.name}</span>
+                        </div>
                         <span
                           style={{
                             fontWeight: 900,
-                            background: "var(--accent)",
+                            background: i.status === 'cancelled' ? 'var(--border)' : "var(--accent)",
                             padding: "0.2rem 0.6rem",
                             borderRadius: "0.5rem",
                             fontSize: "0.9rem",
@@ -382,7 +428,8 @@ export default function TablesPage() {
                     style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}
                   >
                     {filteredProducts.map((p) => {
-                      const outOfStock = p.quantity <= 0;
+                      const avail = p.total_stock - p.reserved_stock;
+                      const outOfStock = avail <= 0;
                       return (
                         <div
                           key={p.id}
@@ -414,7 +461,7 @@ export default function TablesPage() {
                               border: `1px solid ${outOfStock ? "var(--danger)" : "var(--success)"}`,
                             }}
                           >
-                            {outOfStock ? "Out of Stock" : `Stock: ${p.quantity}`}
+                            {outOfStock ? "Out of Stock" : `Available: ${avail}`}
                           </div>
                         </div>
                       );

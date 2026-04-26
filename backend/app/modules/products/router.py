@@ -20,7 +20,7 @@ class ProductIn(BaseModel):
     category: str
     sub_category: str | None = None
     is_veg: bool = True
-    quantity: float = 0
+    total_stock: float = 0
     low_stock_threshold: float = 5
     is_active: bool = True
 
@@ -32,7 +32,9 @@ class ProductOut(BaseModel):
     category: str
     sub_category: str | None = None
     is_veg: bool
-    quantity: float
+    total_stock: float
+    reserved_stock: float
+    sold_stock: float
     low_stock_threshold: float
     is_active: bool
 
@@ -120,7 +122,7 @@ async def bulk_upload_products(file: UploadFile = File(...), db: Session = Depen
                 category=row.get('category', 'General'),
                 sub_category=row.get('sub_category'),
                 is_veg=str(row.get('is_veg', 'true')).lower() in ('true', '1', 'yes', 'y'),
-                quantity=float(row.get('quantity', 0)),
+                total_stock=float(row.get('quantity', 0)), # Map CSV 'quantity' to 'total_stock'
                 is_active=True
             )
             db.add(product)

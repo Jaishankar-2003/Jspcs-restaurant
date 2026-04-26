@@ -117,38 +117,70 @@ export default function KitchenPage() {
                   </div>
                 </div>
 
-                {/* Waiter Note — shown only when present */}
-                {o.waiter_note && (
+                {/* Waiter Note — Highlighted box */}
+                {o.waiter_note ? (
                   <div
                     style={{
-                      padding: "1rem 1.25rem",
-                      marginBottom: "1.25rem",
-                      background: "rgba(245,158,11,0.12)",
-                      border: "2px dashed var(--primary)",
-                      borderRadius: "0.75rem",
+                      padding: "1.25rem",
+                      marginBottom: "1.5rem",
+                      background: "#fffbeb",
+                      border: "3px solid #f59e0b",
+                      borderRadius: "1rem",
                       display: "flex",
-                      gap: "0.75rem",
-                      alignItems: "flex-start",
+                      gap: "1rem",
+                      alignItems: "center",
+                      boxShadow: "0 4px 12px rgba(245,158,11,0.2)"
                     }}
                   >
-                    <span style={{ fontSize: "1.5rem", lineHeight: 1 }}>📝</span>
-                    <div>
-                      <div style={{ fontWeight: 900, fontSize: "0.85rem", color: "var(--primary)", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Waiter Note</div>
-                      <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--text-dark)" }}>{o.waiter_note}</div>
+                    <span style={{ fontSize: "2rem" }}>📝</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 900, fontSize: "0.9rem", color: "#b45309", textTransform: "uppercase", marginBottom: "0.2rem" }}>Waiter Instruction</div>
+                      <div style={{ fontWeight: 800, fontSize: "1.4rem", color: "#1f2937", lineHeight: 1.2 }}>{o.waiter_note}</div>
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 {/* Items */}
                 <div style={{ flex: 1, overflowY: "auto", marginBottom: "1.5rem" }}>
-                  {o.items?.map((item: any) => (
-                    <div key={item.id} className="row" style={{ justifyContent: "space-between", padding: "1.25rem 0", borderBottom: "1px solid var(--border)" }}>
-                      <span style={{ fontSize: "1.6rem", fontWeight: 800 }}>
-                        <span style={{ color: "var(--primary)", marginRight: "1.25rem" }}>{item.quantity} x</span>
-                        {item.product?.name || "Dish"}
-                      </span>
-                    </div>
-                  ))}
+                  {o.items?.map((item: any) => {
+                    const isCancelled = item.status === 'cancelled';
+                    return (
+                      <div 
+                        key={item.id} 
+                        className="row" 
+                        style={{ 
+                          justifyContent: "space-between", 
+                          padding: "1.25rem 0", 
+                          borderBottom: "1px solid var(--border)",
+                          opacity: isCancelled ? 0.5 : 1,
+                        }}
+                      >
+                        <span style={{ 
+                          fontSize: "1.6rem", 
+                          fontWeight: 800,
+                          textDecoration: isCancelled ? 'line-through' : 'none',
+                          color: isCancelled ? 'var(--danger)' : 'inherit'
+                        }}>
+                          <span style={{ color: isCancelled ? 'var(--danger)' : "var(--primary)", marginRight: "1.25rem" }}>
+                            {item.quantity} x
+                          </span>
+                          {item.product?.name || "Dish"}
+                        </span>
+                        {isCancelled && (
+                          <span 
+                            className="badge badge-danger" 
+                            style={{ 
+                              fontSize: '1rem', 
+                              padding: '0.4rem 0.8rem',
+                              animation: 'pulse 1s infinite'
+                            }}
+                          >
+                            CANCELLED
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Action Buttons */}

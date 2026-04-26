@@ -49,7 +49,12 @@ class Product(Base):
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     sub_category: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_veg: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    quantity: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    
+    # --- NEW STRICT STOCK FIELDS ---
+    total_stock: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)    # Physical items in hand
+    reserved_stock: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0) # Committed to active orders
+    sold_stock: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)     # Successfully billed items
+    
     low_stock_threshold: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=5)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 

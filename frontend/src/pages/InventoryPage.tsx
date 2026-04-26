@@ -25,11 +25,11 @@ export default function InventoryPage() {
       const product = foodItems.find(f => f.id === txn.id);
       if (!product) return alert("Please select an item");
       const { id, ...data } = product;
-      const newQty = txn.type === "in"
-        ? product.quantity + txn.quantity
-        : product.quantity - txn.quantity;
-      if (newQty < 0) return alert("Stock cannot go below 0");
-      await client.patch(`/products/${txn.id}`, { ...data, quantity: newQty });
+      const newTotal = txn.type === "in"
+        ? product.total_stock + txn.quantity
+        : product.total_stock - txn.quantity;
+      if (newTotal < 0) return alert("Total stock cannot go below 0");
+      await client.patch(`/products/${txn.id}`, { ...data, total_stock: newTotal });
       await load();
       alert("Stock updated");
     } catch (err) { alert("Failed to update stock"); }
@@ -51,9 +51,9 @@ export default function InventoryPage() {
 
   const applyFilters = (items: any[]) => {
     let filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
-    if (filter === "instock") filtered = filtered.filter(i => i.quantity > 0);
-    if (filter === "lowstock") filtered = filtered.filter(i => i.quantity > 0 && i.quantity <= i.low_stock_threshold);
-    if (filter === "nostock") filtered = filtered.filter(i => i.quantity <= 0);
+    if (filter === "instock") filtered = filtered.filter(i => (i.total_stock - i.reserved_stock) > 0);
+    if (filter === "lowstock") filtered = filtered.filter(i => (i.total_stock - i.reserved_stock) > 0 && (i.total_stock - i.reserved_stock) <= i.low_stock_threshold);
+    if (filter === "nostock") filtered = filtered.filter(i => (i.total_stock - i.reserved_stock) <= 0);
     return filtered;
   };
 
@@ -92,24 +92,28 @@ export default function InventoryPage() {
           <h3>🍱 Food Items Stock</h3>
           <table className="data-table">
             <thead>
-              <tr><th>S.No</th><th>Item</th><th>Stock Control</th><th>Alert Limit</th><th>Category</th><th>Status</th></tr>
+              <tr><th>S.No</th><th>Item</th><th>Total</th><th>Reserved</th><th>Available</th><th>Alert Limit</th><th>Status</th></tr>
             </thead>
             <tbody>
-              {filteredFood.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center' }}>No items match your criteria</td></tr>}
-              {filteredFood.map((f, i) => (
-                <tr key={f.id}>
-                  <td style={{ fontWeight: 800, color: 'var(--text-muted)' }}>{i + 1}</td>
-                  <td>{f.name}</td>
-                  <td><StockControl item={f} onUpdate={updateStockAbsolute} /></td>
-                  <td><ThresholdControl item={f} onUpdate={updateStockAbsolute} /></td>
-                  <td>{f.category}</td>
-                  <td>
-                    {f.quantity <= 0 ? <span className="badge badge-danger">Out of Stock</span> :
-                      f.quantity <= f.low_stock_threshold ? <span className="badge badge-occupied">Low Stock</span> :
-                        <span className="badge badge-free">In Stock</span>}
-                  </td>
-                </tr>
-              ))}
+              {filteredFood.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center' }}>No items match your criteria</td></tr>}
+              {filteredFood.map((f, i) => {
+                const avail = f.total_stock - f.reserved_stock;
+                return (
+                  <tr key={f.id}>
+                    <td style={{ fontWeight: 800, color: 'var(--text-muted)' }}>{i + 1}</td>
+                    <td style={{ fontWeight: 700 }}>{f.name}</td>
+                    <td><StockControl item={f} onUpdate={updateStockAbsolute} /></td>
+                    <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{f.reserved_stock}</td>
+                    <td style={{ fontWeight: 900, fontSize: '1.1rem' }}>{avail}</td>
+                    <td><ThresholdControl item={f} onUpdate={updateStockAbsolute} /></td>
+                    <td>
+                      {avail <= 0 ? <span className="badge badge-danger">OUT OF STOCK</span> :
+                        avail <= f.low_stock_threshold ? <span className="badge badge-occupied">LOW STOCK</span> :
+                          <span className="badge badge-free">IN STOCK</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -148,23 +152,23 @@ export default function InventoryPage() {
 // +/- clicks; a 600ms debounce fires one single API call with the final value.
 // This prevents race conditions from rapid clicks all reading stale item.quantity.
 function StockControl({ item, onUpdate }: { item: any; onUpdate: (item: any, field: string, value: number) => void }) {
-  const [val, setVal] = useState<number>(item.quantity);
-  const pendingRef = useRef<number>(item.quantity);
+  const [val, setVal] = useState<number>(item.total_stock);
+  const pendingRef = useRef<number>(item.total_stock);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync when parent reloads data (after API round-trip)
   useEffect(() => {
-    setVal(item.quantity);
-    pendingRef.current = item.quantity;
-  }, [item.quantity]);
-
+    setVal(item.total_stock);
+    pendingRef.current = item.total_stock;
+  }, [item.total_stock]);
+  
   const commit = (newVal: number) => {
     if (newVal < 0) return;
     pendingRef.current = newVal;
     setVal(newVal);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      onUpdate(item, "quantity", pendingRef.current);
+      onUpdate(item, "total_stock", pendingRef.current);
     }, 600);
   };
 
@@ -189,8 +193,8 @@ function StockControl({ item, onUpdate }: { item: any; onUpdate: (item: any, fie
         onBlur={() => {
           // Flush immediately on blur without waiting for debounce
           if (timerRef.current) clearTimeout(timerRef.current);
-          if (pendingRef.current !== item.quantity) {
-            onUpdate(item, "quantity", pendingRef.current);
+          if (pendingRef.current !== item.total_stock) {
+            onUpdate(item, "total_stock", pendingRef.current);
           }
         }}
       />

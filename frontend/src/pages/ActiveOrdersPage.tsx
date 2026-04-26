@@ -201,7 +201,8 @@ export default function ActiveOrdersPage() {
           <tbody>
             {orders.map((o) => {
               const total =
-                o.items?.reduce(
+                o.items?.filter((i: any) => i.status !== 'cancelled')
+                .reduce(
                   (acc: number, i: any) => acc + parseFloat(i.price) * i.quantity,
                   0
                 ) || 0;

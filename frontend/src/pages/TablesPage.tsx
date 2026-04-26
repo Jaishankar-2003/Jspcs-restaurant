@@ -6,6 +6,9 @@ interface Product {
   id: number;
   name: string;
   price: number;
+  quantity: number;
+  is_veg: boolean;
+  category: string;
 }
 
 interface Toast {
@@ -28,10 +31,16 @@ export default function TablesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<any[]>([]);
 
-  // Custom dialog state (replaces window.confirm)
+  // Menu search
+  const [menuSearch, setMenuSearch] = useState("");
+
+  // Waiter note
+  const [waiterNote, setWaiterNote] = useState("");
+
+  // Custom dialog state
   const [dialog, setDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
 
-  // Toast state (replaces window.alert)
+  // Toast state
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const showToast = (type: "success" | "error", message: string) => {
@@ -79,6 +88,8 @@ export default function TablesPage() {
   const openTable = async (table: any) => {
     setSelectedTable(table);
     setCart([]);
+    setMenuSearch("");
+    setWaiterNote("");
     if (table.active_order_id) {
       const order = orders.find((o) => o.id === table.active_order_id);
       setActiveOrder(order || null);
@@ -94,12 +105,35 @@ export default function TablesPage() {
     }
   }, [orders, selectedTable]);
 
+  // Add item to cart
   const addToTableCart = (p: Product) => {
+    if (p.quantity <= 0) {
+      showToast("error", `❌ ${p.name} is out of stock`);
+      return;
+    }
     setCart((prev) => {
       const exists = prev.find((i) => i.id === p.id);
-      if (exists) return prev.map((i) => (i.id === p.id ? { ...i, quantity: i.quantity + 1 } : i));
-      return [...prev, { ...p, quantity: 1 }];
+      if (exists) return prev.map((i) => (i.id === p.id ? { ...i, qty: i.qty + 1 } : i));
+      return [...prev, { ...p, qty: 1 }];
     });
+  };
+
+  // Increase qty in cart
+  const increaseQty = (id: number) => {
+    setCart((prev) => prev.map((i) => (i.id === id ? { ...i, qty: i.qty + 1 } : i)));
+  };
+
+  // Decrease qty in cart — remove if hits 0
+  const decreaseQty = (id: number) => {
+    setCart((prev) => {
+      const updated = prev.map((i) => (i.id === id ? { ...i, qty: i.qty - 1 } : i));
+      return updated.filter((i) => i.qty > 0);
+    });
+  };
+
+  // Remove item from cart
+  const removeFromCart = (id: number) => {
+    setCart((prev) => prev.filter((i) => i.id !== id));
   };
 
   const doSendToKitchen = async () => {
@@ -108,18 +142,21 @@ export default function TablesPage() {
     try {
       if (activeOrder) {
         await client.patch(`/orders/${activeOrder.id}/items`, {
-          items: cart.map((i) => ({ product_id: i.id, quantity: i.quantity })),
+          items: cart.map((i) => ({ product_id: i.id, quantity: i.qty })),
+          waiter_note: waiterNote.trim() || null,
         });
       } else {
         await client.post("/orders", {
           type: "dine_in",
           table_id: selectedTable.id,
-          items: cart.map((i) => ({ product_id: i.id, quantity: i.quantity })),
+          items: cart.map((i) => ({ product_id: i.id, quantity: i.qty })),
+          waiter_note: waiterNote.trim() || null,
         });
       }
       showToast("success", "✅ Order Sent to Kitchen!");
       setSelectedTable(null);
       setCart([]);
+      setWaiterNote("");
       load();
     } catch (err: any) {
       console.error("Order submission failed", err);
@@ -174,6 +211,14 @@ export default function TablesPage() {
     openDialog("Send bill request to counter?", doRequestBill);
   };
 
+  // Filtered menu
+  const filteredProducts = products.filter((p) =>
+    p.name.toLowerCase().includes(menuSearch.toLowerCase())
+  );
+
+  // Cart total
+  const cartTotal = cart.reduce((sum, i) => sum + i.price * i.qty, 0);
+
   return (
     <div className="page">
       {/* ── Toast Container ── */}
@@ -201,37 +246,13 @@ export default function TablesPage() {
 
       {/* ── Custom Confirm Dialog ── */}
       {dialog && (
-        <div
-          style={{
-            position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
-            zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
-          <div
-            className="card"
-            style={{
-              maxWidth: "420px", width: "90%", padding: "2.5rem",
-              textAlign: "center", border: "1px solid var(--primary)",
-              boxShadow: "0 0 40px rgba(245,158,11,0.2)",
-            }}
-          >
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9998, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="card" style={{ maxWidth: "420px", width: "90%", padding: "2.5rem", textAlign: "center", border: "1px solid var(--primary)", boxShadow: "0 0 40px rgba(245,158,11,0.2)" }}>
             <div style={{ fontSize: "2.5rem", marginBottom: "1rem" }}>⚠️</div>
             <h3 style={{ marginBottom: "1.5rem", fontSize: "1.2rem" }}>{dialog.message}</h3>
             <div className="row" style={{ justifyContent: "center", gap: "1rem" }}>
-              <button
-                className="btn-primary"
-                style={{ minWidth: "120px" }}
-                onClick={dialog.onConfirm}
-              >
-                YES, CONFIRM
-              </button>
-              <button
-                className="btn-secondary"
-                style={{ minWidth: "120px" }}
-                onClick={() => setDialog(null)}
-              >
-                CANCEL
-              </button>
+              <button className="btn-primary" style={{ minWidth: "120px" }} onClick={dialog.onConfirm}>YES, CONFIRM</button>
+              <button className="btn-secondary" style={{ minWidth: "120px" }} onClick={() => setDialog(null)}>CANCEL</button>
             </div>
           </div>
         </div>
@@ -267,77 +288,272 @@ export default function TablesPage() {
         </div>
       )}
 
+      {/* ── TABLE ORDER MODAL ── */}
       {selectedTable && (
-        <div className="modal-overlay" style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.95)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
-          <div className="card" style={{ width: "100%", maxWidth: "1000px", height: "85vh", display: "flex", flexDirection: "column" }}>
-            <div className="row mb-4" style={{ justifyContent: "space-between" }}>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.95)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "2rem" }}>
+          <div className="card" style={{ width: "100%", maxWidth: "1100px", height: "88vh", display: "flex", flexDirection: "column" }}>
+
+            {/* Header */}
+            <div className="row mb-4" style={{ justifyContent: "space-between", flexShrink: 0 }}>
               <div>
                 <h2>Table: {selectedTable.name}</h2>
                 {activeOrder && (
-                  <div className="row" style={{ marginTop: "0.5rem" }}>
-                    <span className={`badge badge-${activeOrder.status}`}>STATUS: {activeOrder.status.replace("_", " ").toUpperCase()}</span>
-                    {activeOrder.status === "ready" && <span style={{ fontSize: "2rem", marginLeft: "1rem", animation: "bounce 1s infinite" }}>🔔</span>}
+                  <div className="row" style={{ marginTop: "0.5rem", gap: "0.5rem" }}>
+                    <span className={`badge badge-${activeOrder.status}`}>
+                      STATUS: {activeOrder.status.replace("_", " ").toUpperCase()}
+                    </span>
+                    {activeOrder.status === "ready" && <span style={{ fontSize: "2rem", animation: "bounce 1s infinite" }}>🔔</span>}
                   </div>
                 )}
               </div>
               <button className="btn-secondary" onClick={() => setSelectedTable(null)}>CLOSE</button>
             </div>
 
-            <div className="grid" style={{ gridTemplateColumns: "1fr 380px", flex: 1, overflow: "hidden", gap: "2rem" }}>
+            {/* Body — 3 columns */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 360px", flex: 1, overflow: "hidden", gap: "1.5rem" }}>
+
+              {/* ── LEFT: Confirmed Items ── */}
               <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                <div className="mb-4">
-                  <h4>Confirmed Items</h4>
-                  <div className="card" style={{ background: "var(--bg)", minHeight: "120px", maxHeight: "250px", overflowY: "auto" }}>
-                    {activeOrder?.items?.map((i: any) => (
-                      <div key={i.id} className="row" style={{ justifyContent: "space-between", padding: "0.75rem", borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ fontWeight: 600 }}>{i.product?.name}</span>
-                        <span style={{ fontWeight: 900 }}>x {i.quantity}</span>
+                <h4 style={{ flexShrink: 0, marginBottom: "0.75rem" }}>✅ Confirmed Items</h4>
+                <div
+                  className="card"
+                  style={{ background: "var(--bg)", flex: 1, overflowY: "auto", padding: "0.75rem" }}
+                >
+                  {activeOrder?.items?.length > 0 ? (
+                    activeOrder.items.map((i: any) => (
+                      <div
+                        key={i.id}
+                        className="row"
+                        style={{ justifyContent: "space-between", padding: "0.75rem 0.5rem", borderBottom: "1px solid var(--border)" }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{i.product?.name}</span>
+                        <span
+                          style={{
+                            fontWeight: 900,
+                            background: "var(--accent)",
+                            padding: "0.2rem 0.6rem",
+                            borderRadius: "0.5rem",
+                            fontSize: "0.9rem",
+                          }}
+                        >
+                          × {i.quantity}
+                        </span>
                       </div>
-                    ))}
-                    {!activeOrder?.items && <p style={{ opacity: 0.3, textAlign: "center", padding: "2rem" }}>No items confirmed yet</p>}
-                  </div>
+                    ))
+                  ) : (
+                    <p style={{ opacity: 0.3, textAlign: "center", padding: "2rem" }}>No items confirmed yet</p>
+                  )}
+                  {/* Waiter note from active order */}
+                  {activeOrder?.waiter_note && (
+                    <div
+                      style={{
+                        marginTop: "1rem",
+                        padding: "0.75rem",
+                        background: "rgba(245,158,11,0.1)",
+                        border: "1px dashed var(--primary)",
+                        borderRadius: "0.5rem",
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      <span style={{ fontWeight: 700, color: "var(--primary)" }}>📝 Note: </span>
+                      {activeOrder.waiter_note}
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* ── MIDDLE: Available Menu ── */}
+              <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* Search bar */}
+                <div style={{ flexShrink: 0, marginBottom: "0.75rem", display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <h4 style={{ margin: 0, whiteSpace: "nowrap" }}>🍽️ Menu</h4>
+                  <input
+                    className="input-field"
+                    style={{ flex: 1, padding: "0.4rem 0.75rem", fontSize: "0.9rem", margin: 0 }}
+                    placeholder="🔍 Search dish..."
+                    value={menuSearch}
+                    onChange={(e) => setMenuSearch(e.target.value)}
+                  />
+                </div>
+
                 <div style={{ flex: 1, overflowY: "auto" }}>
-                  <h4>Available Menu</h4>
-                  <div className="product-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}>
-                    {products.map((p) => (
-                      <div key={p.id} className="product-card" style={{ padding: "1rem" }} onClick={() => addToTableCart(p)}>
-                        <div style={{ fontSize: "0.9rem", fontWeight: 700 }}>{p.name}</div>
-                        <div style={{ color: "var(--primary)", fontWeight: 900 }}>₹{p.price}</div>
-                      </div>
-                    ))}
+                  <div
+                    className="product-grid"
+                    style={{ gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))" }}
+                  >
+                    {filteredProducts.map((p) => {
+                      const outOfStock = p.quantity <= 0;
+                      return (
+                        <div
+                          key={p.id}
+                          className="product-card"
+                          style={{
+                            padding: "0.85rem",
+                            opacity: outOfStock ? 0.45 : 1,
+                            cursor: outOfStock ? "not-allowed" : "pointer",
+                            borderTop: `3px solid ${p.is_veg ? "var(--success)" : "var(--danger)"}`,
+                            position: "relative",
+                          }}
+                          onClick={() => addToTableCart(p)}
+                        >
+                          <div style={{ fontSize: "0.85rem", fontWeight: 700, marginBottom: "0.3rem", lineHeight: 1.2 }}>
+                            {p.name}
+                          </div>
+                          <div style={{ color: "var(--primary)", fontWeight: 900, fontSize: "1rem" }}>₹{p.price}</div>
+                          {/* Stock count badge */}
+                          <div
+                            style={{
+                              marginTop: "0.4rem",
+                              fontSize: "0.72rem",
+                              fontWeight: 700,
+                              padding: "0.15rem 0.4rem",
+                              borderRadius: "0.35rem",
+                              display: "inline-block",
+                              background: outOfStock ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.12)",
+                              color: outOfStock ? "var(--danger)" : "var(--success)",
+                              border: `1px solid ${outOfStock ? "var(--danger)" : "var(--success)"}`,
+                            }}
+                          >
+                            {outOfStock ? "Out of Stock" : `Stock: ${p.quantity}`}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {filteredProducts.length === 0 && (
+                      <p style={{ gridColumn: "1/-1", textAlign: "center", opacity: 0.4, padding: "2rem" }}>
+                        No dishes found
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
-              <div style={{ background: "var(--accent)", padding: "2rem", borderRadius: "1.5rem", display: "flex", flexDirection: "column", border: "1px solid var(--border)" }}>
-                <h3 style={{ color: "var(--primary)", marginBottom: "1.5rem" }}>Add to Order</h3>
-                <div style={{ flex: 1, overflowY: "auto" }}>
+              {/* ── RIGHT: Cart (Add to Order) ── */}
+              <div
+                style={{
+                  background: "var(--accent)",
+                  padding: "1.5rem",
+                  borderRadius: "1.25rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  border: "1px solid var(--border)",
+                  overflow: "hidden",
+                }}
+              >
+                <h3 style={{ color: "var(--primary)", marginBottom: "1rem", flexShrink: 0 }}>🛒 Add to Order</h3>
+
+                {/* Cart items */}
+                <div style={{ flex: 1, overflowY: "auto", marginBottom: "0.75rem" }}>
                   {cart.map((i) => (
-                    <div key={i.id} className="row" style={{ justifyContent: "space-between", padding: "0.8rem 0", borderBottom: "1px solid var(--border)" }}>
-                      <span>{i.name} x {i.quantity}</span>
-                      <button onClick={() => setCart(cart.filter((item) => item.id !== i.id))} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: "1.2rem" }}>✖</button>
+                    <div
+                      key={i.id}
+                      style={{
+                        padding: "0.65rem 0",
+                        borderBottom: "1px solid var(--border)",
+                      }}
+                    >
+                      {/* Item name + remove */}
+                      <div className="row" style={{ justifyContent: "space-between", marginBottom: "0.35rem" }}>
+                        <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{i.name}</span>
+                        <button
+                          onClick={() => removeFromCart(i.id)}
+                          style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: "1rem", lineHeight: 1 }}
+                          title="Remove"
+                        >✖</button>
+                      </div>
+                      {/* Qty controls + subtotal */}
+                      <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                          <button
+                            onClick={() => decreaseQty(i.id)}
+                            style={{
+                              width: "26px", height: "26px", borderRadius: "50%",
+                              border: "1.5px solid var(--border)", background: "var(--card-bg)",
+                              cursor: "pointer", fontWeight: 900, fontSize: "1rem",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              color: "var(--text-dark)",
+                            }}
+                          >−</button>
+                          <span style={{ fontWeight: 800, minWidth: "22px", textAlign: "center" }}>{i.qty}</span>
+                          <button
+                            onClick={() => increaseQty(i.id)}
+                            style={{
+                              width: "26px", height: "26px", borderRadius: "50%",
+                              border: "1.5px solid var(--primary)", background: "var(--primary)",
+                              cursor: "pointer", fontWeight: 900, fontSize: "1rem",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              color: "#000",
+                            }}
+                          >+</button>
+                        </div>
+                        <span style={{ fontWeight: 700, color: "var(--primary)", fontSize: "0.9rem" }}>
+                          ₹{(i.price * i.qty).toFixed(0)}
+                        </span>
+                      </div>
                     </div>
                   ))}
-                  {cart.length === 0 && <p style={{ opacity: 0.3, textAlign: "center", padding: "2rem" }}>Cart is empty</p>}
+                  {cart.length === 0 && (
+                    <p style={{ opacity: 0.3, textAlign: "center", padding: "1.5rem" }}>Cart is empty</p>
+                  )}
                 </div>
-                <div className="mt-4" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+
+                {/* Cart total */}
+                {cart.length > 0 && (
+                  <div
+                    style={{
+                      padding: "0.6rem 0.75rem",
+                      background: "rgba(245,158,11,0.1)",
+                      borderRadius: "0.6rem",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontWeight: 800,
+                      marginBottom: "0.75rem",
+                      border: "1px solid rgba(245,158,11,0.3)",
+                    }}
+                  >
+                    <span>Total</span>
+                    <span style={{ color: "var(--primary)" }}>₹{cartTotal.toFixed(0)}</span>
+                  </div>
+                )}
+
+                {/* Waiter Note */}
+                <div style={{ flexShrink: 0, marginBottom: "0.75rem" }}>
+                  <textarea
+                    className="input-field"
+                    style={{
+                      width: "100%",
+                      resize: "none",
+                      height: "64px",
+                      fontSize: "0.85rem",
+                      padding: "0.5rem 0.75rem",
+                      margin: 0,
+                      borderStyle: waiterNote ? "solid" : "dashed",
+                      borderColor: waiterNote ? "var(--primary)" : "var(--border)",
+                      background: waiterNote ? "rgba(245,158,11,0.06)" : undefined,
+                    }}
+                    placeholder="📝 Optional: Note for kitchen (e.g. less spicy, no onion...)"
+                    value={waiterNote}
+                    onChange={(e) => setWaiterNote(e.target.value)}
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", flexShrink: 0 }}>
                   <button
                     className="btn-primary"
-                    style={{ height: "4.5rem", fontSize: "1.2rem" }}
+                    style={{ height: "4rem", fontSize: "1.05rem" }}
                     onClick={handleConfirmOrder}
                     disabled={submitting || cart.length === 0}
                   >
                     {submitting ? "SENDING..." : "📢 SEND TO KITCHEN"}
                   </button>
 
-                  {/* CONFIRM DELIVERY — shown when waiter has picked the order */}
                   {activeOrder && activeOrder.status === "picked" && (
                     <button
                       className="btn-primary"
                       style={{
-                        height: "5rem",
-                        fontSize: "1.1rem",
+                        height: "4rem",
+                        fontSize: "1rem",
                         background: "linear-gradient(135deg, #10b981, #059669)",
                         color: "white",
                         boxShadow: "0 4px 20px rgba(16,185,129,0.5)",
@@ -350,12 +566,11 @@ export default function TablesPage() {
                     </button>
                   )}
 
-                  {/* REQUEST BILL — shown when order is delivered or ready */}
                   {activeOrder && (activeOrder.status === "delivered" || activeOrder.status === "bill_requested") && (
                     <button
                       className="btn-primary"
                       style={{
-                        height: "4rem",
+                        height: "3.5rem",
                         background: activeOrder.status === "bill_requested" ? "var(--success)" : "var(--accent)",
                         color: activeOrder.status === "bill_requested" ? "black" : "white",
                       }}

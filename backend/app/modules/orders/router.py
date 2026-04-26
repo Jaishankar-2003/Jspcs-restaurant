@@ -22,10 +22,12 @@ class CreateOrderIn(BaseModel):
     type: str  # dine_in | takeaway
     table_id: int | None = None
     items: List[OrderItemIn]
+    waiter_note: str | None = None  # Optional special instruction for kitchen
 
 
 class UpdateItemsIn(BaseModel):
     items: List[OrderItemIn]
+    waiter_note: str | None = None  # Append/update waiter note
 
 
 @router.post("")
@@ -45,6 +47,7 @@ def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depend
         table_id=payload.table_id, 
         token_number=token, 
         status=status, 
+        waiter_note=payload.waiter_note or None,
         created_at=datetime.utcnow()
     )
     db.add(order)
@@ -88,6 +91,9 @@ def update_order_items(order_id: int, payload: UpdateItemsIn, db: Session = Depe
     
     # Auto-move to confirmed if items were added
     order.status = "confirmed"
+    # Update waiter note if provided
+    if payload.waiter_note is not None:
+        order.waiter_note = payload.waiter_note or None
     db.commit()
     db.refresh(order)
     return order

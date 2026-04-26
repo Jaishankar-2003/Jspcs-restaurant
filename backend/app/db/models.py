@@ -80,6 +80,7 @@ class Order(Base):
     token_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending") 
     # pending (waiter adding) | confirmed (to kitchen) | preparing | ready | completed | cancelled | bill_requested
+    waiter_note: Mapped[str | None] = mapped_column(Text, nullable=True)  # Optional waiter instruction for kitchen
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     items: Mapped[list["OrderItem"]] = relationship(cascade="all, delete-orphan", lazy="selectin")
 

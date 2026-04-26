@@ -117,6 +117,28 @@ export default function KitchenPage() {
                   </div>
                 </div>
 
+                {/* Waiter Note — shown only when present */}
+                {o.waiter_note && (
+                  <div
+                    style={{
+                      padding: "1rem 1.25rem",
+                      marginBottom: "1.25rem",
+                      background: "rgba(245,158,11,0.12)",
+                      border: "2px dashed var(--primary)",
+                      borderRadius: "0.75rem",
+                      display: "flex",
+                      gap: "0.75rem",
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <span style={{ fontSize: "1.5rem", lineHeight: 1 }}>📝</span>
+                    <div>
+                      <div style={{ fontWeight: 900, fontSize: "0.85rem", color: "var(--primary)", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Waiter Note</div>
+                      <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--text-dark)" }}>{o.waiter_note}</div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Items */}
                 <div style={{ flex: 1, overflowY: "auto", marginBottom: "1.5rem" }}>
                   {o.items?.map((item: any) => (

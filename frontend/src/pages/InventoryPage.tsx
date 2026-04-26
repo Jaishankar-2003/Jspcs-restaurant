@@ -1,23 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import client from "../api/client";
 import { Link } from "react-router-dom";
 
 export default function InventoryPage() {
-  const [rawItems, setRawItems] = useState<any[]>([]);
   const [foodItems, setFoodItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [txn, setTxn] = useState({ id: 0, quantity: 0, type: "in", category: "food" });
+  const [txn, setTxn] = useState({ id: 0, quantity: 0, type: "in" });
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all"); // all, instock, lowstock, nostock
 
   const load = async () => {
     setLoading(true);
-    const [raw, food] = await Promise.all([
-      client.get("/inventory"),
-      client.get("/products")
-    ]);
-    setRawItems(raw.data);
+    const food = await client.get("/products");
     setFoodItems(food.data);
     setLoading(false);
   };
@@ -27,44 +22,30 @@ export default function InventoryPage() {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-        if (txn.category === "food") {
-            const product = foodItems.find(f => f.id === txn.id);
-            const { id, ...data } = product;
-            const newQty = txn.type === "in" ? product.quantity + txn.quantity : product.quantity - txn.quantity;
-            await client.patch(`/products/${txn.id}`, { ...data, quantity: newQty });
-        } else {
-            const endpoint = txn.type === "in" ? "/inventory/stock-in" : "/inventory/stock-out";
-            await client.post(endpoint, { inventory_id: txn.id, quantity: txn.quantity });
-        }
-        load();
-        alert("Stock updated");
+      const product = foodItems.find(f => f.id === txn.id);
+      if (!product) return alert("Please select an item");
+      const { id, ...data } = product;
+      const newQty = txn.type === "in"
+        ? product.quantity + txn.quantity
+        : product.quantity - txn.quantity;
+      if (newQty < 0) return alert("Stock cannot go below 0");
+      await client.patch(`/products/${txn.id}`, { ...data, quantity: newQty });
+      await load();
+      alert("Stock updated");
     } catch (err) { alert("Failed to update stock"); }
   };
 
-  const updateStockInline = async (item: any, category: string, field: string, amount: number, isAbsolute: boolean = false) => {
+  // Called from StockControl/ThresholdControl after debounce settles
+  const updateStockAbsolute = async (item: any, field: string, newValue: number) => {
     try {
-      let newQty = isAbsolute ? amount : item[field] + amount;
-      if (newQty < 0) return alert("Value cannot be negative");
-
+      if (newValue < 0) return;
       const { id, ...cleanItem } = item;
-      const payload = { ...cleanItem, [field]: newQty };
-
-      if (category === "food") {
-        await client.patch(`/products/${item.id}`, payload);
-      } else {
-        if (field === "low_stock_threshold") {
-          await client.patch(`/inventory/${item.id}`, payload);
-        } else {
-          let diff = newQty - item.quantity;
-          if (diff !== 0) {
-            const endpoint = diff > 0 ? "/inventory/stock-in" : "/inventory/stock-out";
-            await client.post(endpoint, { inventory_id: item.id, quantity: Math.abs(diff) });
-          }
-        }
-      }
+      const payload = { ...cleanItem, [field]: newValue };
+      await client.patch(`/products/${item.id}`, payload);
       await load();
     } catch (err) {
       alert("Failed to update stock");
+      await load(); // reload to revert optimistic UI
     }
   };
 
@@ -77,27 +58,26 @@ export default function InventoryPage() {
   };
 
   const filteredFood = applyFilters(foodItems);
-  const filteredRaw = applyFilters(rawItems);
 
   return (
     <div className="page">
       <div className="topbar">
-        <h1>STOCK & INVENTORY</h1>
+        <h1>STOCK &amp; INVENTORY</h1>
         <Link to="/dashboard" className="btn-secondary">Back</Link>
       </div>
 
       <div className="card mb-4 row" style={{ gap: '1rem', display: 'flex' }}>
-        <input 
-          className="input-field" 
+        <input
+          className="input-field"
           style={{ flex: 3 }}
-          placeholder="🔍 Search items..." 
-          value={search} 
-          onChange={e => setSearch(e.target.value)} 
+          placeholder="🔍 Search items..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
         />
-        <select 
-          className="input-field" 
+        <select
+          className="input-field"
           style={{ flex: 1, minWidth: '200px' }}
-          value={filter} 
+          value={filter}
           onChange={e => setFilter(e.target.value)}
         >
           <option value="all">All Stock</option>
@@ -107,90 +87,55 @@ export default function InventoryPage() {
         </select>
       </div>
 
-      <div className="grid" style={{gridTemplateColumns: '1fr 400px'}}>
-        <div style={{display: 'flex', flexDirection: 'column', gap: '2rem'}}>
-          <div className="card">
-            <h3>🍱 Food Items Stock</h3>
-            <table className="data-table">
-              <thead>
-                <tr><th>S.No</th><th>Item</th><th>Stock Control</th><th>Alert Limit</th><th>Category</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {filteredFood.length === 0 && <tr><td colSpan={6} style={{textAlign: 'center'}}>No items match your criteria</td></tr>}
-                {filteredFood.map((f, i) => (
-                  <tr key={f.id}>
-                    <td style={{fontWeight: 800, color: 'var(--text-muted)'}}>{i + 1}</td>
-                    <td>{f.name}</td>
-                    <td><StockControl item={f} category="food" onUpdate={updateStockInline} /></td>
-                    <td><ThresholdControl item={f} category="food" onUpdate={updateStockInline} /></td>
-                    <td>{f.category}</td>
-                    <td>
-                      {f.quantity <= 0 ? <span className="badge badge-danger">Out of Stock</span> :
-                       f.quantity <= f.low_stock_threshold ? <span className="badge badge-occupied">Low Stock</span> : 
-                       <span className="badge badge-free">In Stock</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="card">
-            <h3>📦 Raw Materials</h3>
-            <table className="data-table">
-              <thead>
-                <tr><th>S.No</th><th>Item</th><th>Stock Control</th><th>Alert Limit</th><th>Unit</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {filteredRaw.length === 0 && <tr><td colSpan={6} style={{textAlign: 'center'}}>No items match your criteria</td></tr>}
-                {filteredRaw.map((r, i) => (
-                  <tr key={r.id}>
-                    <td style={{fontWeight: 800, color: 'var(--text-muted)'}}>{i + 1}</td>
-                    <td>{r.name}</td>
-                    <td><StockControl item={r} category="raw" onUpdate={updateStockInline} /></td>
-                    <td><ThresholdControl item={r} category="raw" onUpdate={updateStockInline} /></td>
-                    <td>{r.unit}</td>
-                    <td>
-                      {r.quantity <= 0 ? <span className="badge badge-danger">Out of Stock</span> :
-                       r.quantity <= r.low_stock_threshold ? <span className="badge badge-occupied">Low Stock</span> : 
-                       <span className="badge badge-free">In Stock</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      <div className="grid" style={{ gridTemplateColumns: '1fr 400px' }}>
+        <div className="card">
+          <h3>🍱 Food Items Stock</h3>
+          <table className="data-table">
+            <thead>
+              <tr><th>S.No</th><th>Item</th><th>Stock Control</th><th>Alert Limit</th><th>Category</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {filteredFood.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center' }}>No items match your criteria</td></tr>}
+              {filteredFood.map((f, i) => (
+                <tr key={f.id}>
+                  <td style={{ fontWeight: 800, color: 'var(--text-muted)' }}>{i + 1}</td>
+                  <td>{f.name}</td>
+                  <td><StockControl item={f} onUpdate={updateStockAbsolute} /></td>
+                  <td><ThresholdControl item={f} onUpdate={updateStockAbsolute} /></td>
+                  <td>{f.category}</td>
+                  <td>
+                    {f.quantity <= 0 ? <span className="badge badge-danger">Out of Stock</span> :
+                      f.quantity <= f.low_stock_threshold ? <span className="badge badge-occupied">Low Stock</span> :
+                        <span className="badge badge-free">In Stock</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        <div className="card" style={{height: 'fit-content', position: 'sticky', top: '2rem'}}>
+        <div className="card" style={{ height: 'fit-content', position: 'sticky', top: '2rem' }}>
           <h3>⚡ Quick Update</h3>
           <form onSubmit={handleUpdate}>
             <div className="form-group">
-              <label>Category</label>
-              <select className="input-field" value={txn.category} onChange={e => setTxn({...txn, category: e.target.value, id: 0})}>
-                <option value="food">Food Product</option>
-                <option value="raw">Raw Material</option>
-              </select>
-            </div>
-            <div className="form-group">
               <label>Select Item</label>
-              <select className="input-field" value={txn.id} onChange={e => setTxn({...txn, id: parseInt(e.target.value)})}>
+              <select className="input-field" value={txn.id} onChange={e => setTxn({ ...txn, id: parseInt(e.target.value) })}>
                 <option value={0}>-- Select --</option>
-                {(txn.category === 'food' ? foodItems : rawItems).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                {foodItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
               </select>
             </div>
             <div className="form-group">
               <label>Type</label>
               <div className="row">
-                <button type="button" className={`btn-secondary flex-1 ${txn.type === 'in' ? 'active-success' : ''}`} onClick={() => setTxn({...txn, type: 'in'})}>STOCK IN</button>
-                <button type="button" className={`btn-secondary flex-1 ${txn.type === 'out' ? 'active-danger' : ''}`} onClick={() => setTxn({...txn, type: 'out'})}>STOCK OUT</button>
+                <button type="button" className={`btn-secondary flex-1 ${txn.type === 'in' ? 'active-success' : ''}`} onClick={() => setTxn({ ...txn, type: 'in' })}>STOCK IN</button>
+                <button type="button" className={`btn-secondary flex-1 ${txn.type === 'out' ? 'active-danger' : ''}`} onClick={() => setTxn({ ...txn, type: 'out' })}>STOCK OUT</button>
               </div>
             </div>
             <div className="form-group">
               <label>Quantity</label>
-              <input type="number" className="input-field" value={txn.quantity} onChange={e => setTxn({...txn, quantity: parseFloat(e.target.value)})} />
+              <input type="number" className="input-field" value={txn.quantity} onChange={e => setTxn({ ...txn, quantity: parseFloat(e.target.value) })} />
             </div>
-            <button className="btn-primary mt-4" style={{width: '100%'}} disabled={!txn.id}>UPDATE STOCK</button>
+            <button className="btn-primary mt-4" style={{ width: '100%' }} disabled={!txn.id}>UPDATE STOCK</button>
           </form>
         </div>
       </div>
@@ -198,50 +143,83 @@ export default function InventoryPage() {
   );
 }
 
-// Sub-components moved outside to prevent re-definition focus bugs
-function StockControl({ item, category, onUpdate }: { item: any, category: string, onUpdate: any }) {
-  const [val, setVal] = useState(item.quantity);
-  useEffect(() => { setVal(item.quantity) }, [item.quantity]);
-  
+// ─── StockControl ─────────────────────────────────────────────────────────────
+// Uses a debounced ref pattern: local optimistic value updates instantly on
+// +/- clicks; a 600ms debounce fires one single API call with the final value.
+// This prevents race conditions from rapid clicks all reading stale item.quantity.
+function StockControl({ item, onUpdate }: { item: any; onUpdate: (item: any, field: string, value: number) => void }) {
+  const [val, setVal] = useState<number>(item.quantity);
+  const pendingRef = useRef<number>(item.quantity);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync when parent reloads data (after API round-trip)
+  useEffect(() => {
+    setVal(item.quantity);
+    pendingRef.current = item.quantity;
+  }, [item.quantity]);
+
+  const commit = (newVal: number) => {
+    if (newVal < 0) return;
+    pendingRef.current = newVal;
+    setVal(newVal);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onUpdate(item, "quantity", pendingRef.current);
+    }, 600);
+  };
+
   return (
     <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
-      <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', minWidth: '30px' }} onClick={() => onUpdate(item, category, 'quantity', -1, false)}>-</button>
-      <input 
-        type="number" 
-        className="input-field" 
-        style={{ width: '70px', padding: '0.2rem', textAlign: 'center', margin: 0 }} 
-        value={val} 
-        onChange={e => setVal(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') e.currentTarget.blur();
+      <button
+        className="btn-secondary qty-btn"
+        style={{ padding: '0.2rem 0.5rem', minWidth: '30px' }}
+        onClick={() => commit(pendingRef.current - 1)}
+      >-</button>
+      <input
+        type="number"
+        className="input-field"
+        style={{ width: '55px', padding: '0.15rem', textAlign: 'center', margin: 0 }}
+        value={val}
+        onChange={e => {
+          const n = parseFloat(e.target.value);
+          if (!isNaN(n)) commit(n);
+          else setVal(0);
         }}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
         onBlur={() => {
-          let n = parseFloat(val as string);
-          if (!isNaN(n) && n !== item.quantity) onUpdate(item, category, 'quantity', n, true);
+          // Flush immediately on blur without waiting for debounce
+          if (timerRef.current) clearTimeout(timerRef.current);
+          if (pendingRef.current !== item.quantity) {
+            onUpdate(item, "quantity", pendingRef.current);
+          }
         }}
       />
-      <button className="btn-secondary" style={{ padding: '0.2rem 0.5rem', minWidth: '30px' }} onClick={() => onUpdate(item, category, 'quantity', 1, false)}>+</button>
+      <button
+        className="btn-secondary qty-btn"
+        style={{ padding: '0.2rem 0.5rem', minWidth: '30px' }}
+        onClick={() => commit(pendingRef.current + 1)}
+      >+</button>
     </div>
   );
 }
 
-function ThresholdControl({ item, category, onUpdate }: { item: any, category: string, onUpdate: any }) {
-  const [val, setVal] = useState(item.low_stock_threshold);
-  useEffect(() => { setVal(item.low_stock_threshold) }, [item.low_stock_threshold]);
-  
+// ─── ThresholdControl ─────────────────────────────────────────────────────────
+function ThresholdControl({ item, onUpdate }: { item: any; onUpdate: (item: any, field: string, value: number) => void }) {
+  const [val, setVal] = useState<number>(item.low_stock_threshold);
+
+  useEffect(() => { setVal(item.low_stock_threshold); }, [item.low_stock_threshold]);
+
   return (
-    <input 
-      type="number" 
-      className="input-field" 
-      style={{ width: '70px', padding: '0.2rem', textAlign: 'center', margin: 0, borderStyle: 'dashed' }} 
-      value={val} 
-      onChange={e => setVal(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') e.currentTarget.blur();
-      }}
+    <input
+      type="number"
+      className="input-field"
+      style={{ width: '50px', padding: '0.2rem', textAlign: 'center', margin: 0, borderStyle: 'dashed' }}
+      value={val}
+      onChange={e => setVal(parseFloat(e.target.value))}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
       onBlur={() => {
-        let n = parseFloat(val as string);
-        if (!isNaN(n) && n !== item.low_stock_threshold) onUpdate(item, category, 'low_stock_threshold', n, true);
+        let n = parseFloat(val as unknown as string);
+        if (!isNaN(n) && n !== item.low_stock_threshold) onUpdate(item, 'low_stock_threshold', n);
       }}
       title="Edit Low Stock Alert Limit"
     />

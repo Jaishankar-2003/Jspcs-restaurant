@@ -75,6 +75,28 @@ class DiningTable(Base):
     chairs: Mapped[int] = mapped_column(Integer, default=4, nullable=False) # Added chairs
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="free") # free | occupied | cleaning
     active_order_id: Mapped[int | None] = mapped_column(Integer, nullable=True) # To link table to current order
+    seating_sessions: Mapped[list["SeatingSession"]] = relationship(lazy="select")
+
+
+class SeatingSession(Base):
+    __tablename__ = "seating_sessions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    table_id: Mapped[int] = mapped_column(ForeignKey("tables.id"), nullable=False)
+    group_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    guest_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    selected_seats: Mapped[str] = mapped_column(String(255), nullable=False)  # Comma-separated: "1,2"
+    seating_mode: Mapped[str] = mapped_column(String(30), default="individual", nullable=False)  # individual | full_table | custom
+    phone_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    customer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)  # active | bill_requested | completed | cancelled
+    created_by: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Links sessions of the same guest party spread across multiple tables (nullable for legacy rows)
+    party_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    table: Mapped["DiningTable"] = relationship(lazy="select")
+    orders: Mapped[list["Order"]] = relationship(lazy="select")
 
 
 class Order(Base):
@@ -82,12 +104,14 @@ class Order(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     type: Mapped[str] = mapped_column(String(20), nullable=False)  # dine_in | takeaway
     table_id: Mapped[int | None] = mapped_column(ForeignKey("tables.id"), nullable=True)
+    seating_session_id: Mapped[int | None] = mapped_column(ForeignKey("seating_sessions.id"), nullable=True)
     token_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending") 
     # pending (waiter adding) | confirmed (to kitchen) | preparing | ready | completed | cancelled | bill_requested
     waiter_note: Mapped[str | None] = mapped_column(Text, nullable=True)  # Optional waiter instruction for kitchen
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     items: Mapped[list["OrderItem"]] = relationship(cascade="all, delete-orphan", lazy="selectin")
+    seating_session: Mapped["SeatingSession | None"] = relationship(lazy="select")
 
 
 class OrderItem(Base):

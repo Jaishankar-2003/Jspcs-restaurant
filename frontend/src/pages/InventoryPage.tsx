@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import client from "../api/client";
-import { Link } from "react-router-dom";
+import { AppLayout } from "../components/AppLayout";
+import { StatCard } from "../components/StatCard";
+import { SearchIcon, PlusIcon, MinusIcon, InventoryIcon } from "../components/Icons";
 
 export default function InventoryPage() {
   const [foodItems, setFoodItems] = useState<any[]>([]);
@@ -12,27 +14,38 @@ export default function InventoryPage() {
 
   const load = async () => {
     setLoading(true);
-    const food = await client.get("/products");
-    setFoodItems(food.data);
-    setLoading(false);
+    try {
+      const food = await client.get("/products");
+      setFoodItems(food.data);
+    } catch (err) {
+      console.error("Failed to load inventory", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const product = foodItems.find(f => f.id === txn.id);
-      if (!product) return alert("Please select an item");
+      const product = foodItems.find((f) => f.id === txn.id);
+      if (!product) return alert("Please select an item to adjust");
       const { id, ...data } = product;
-      const newTotal = txn.type === "in"
-        ? product.total_stock + txn.quantity
-        : product.total_stock - txn.quantity;
-      if (newTotal < 0) return alert("Total stock cannot go below 0");
+      const newTotal =
+        txn.type === "in"
+          ? product.total_stock + txn.quantity
+          : product.total_stock - txn.quantity;
+      if (newTotal < 0) return alert("Total stock cannot drop below zero");
       await client.patch(`/products/${txn.id}`, { ...data, total_stock: newTotal });
       await load();
-      alert("Stock updated");
-    } catch (err) { alert("Failed to update stock"); }
+      alert(`✅ Stock for ${product.name} updated to ${newTotal}`);
+      setTxn({ id: 0, quantity: 0, type: "in" });
+    } catch (err) {
+      alert("Failed to update stock");
+    }
   };
 
   // Called from StockControl/ThresholdControl after debounce settles
@@ -50,118 +63,331 @@ export default function InventoryPage() {
   };
 
   const applyFilters = (items: any[]) => {
-    let filtered = items.filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
-    if (filter === "instock") filtered = filtered.filter(i => (i.total_stock - i.reserved_stock) > 0);
-    if (filter === "lowstock") filtered = filtered.filter(i => (i.total_stock - i.reserved_stock) > 0 && (i.total_stock - i.reserved_stock) <= i.low_stock_threshold);
-    if (filter === "nostock") filtered = filtered.filter(i => (i.total_stock - i.reserved_stock) <= 0);
+    let filtered = items.filter((i) =>
+      i.name.toLowerCase().includes(search.toLowerCase())
+    );
+    if (filter === "instock")
+      filtered = filtered.filter((i) => i.total_stock - i.reserved_stock > 0);
+    if (filter === "lowstock")
+      filtered = filtered.filter(
+        (i) =>
+          i.total_stock - i.reserved_stock > 0 &&
+          i.total_stock - i.reserved_stock <= i.low_stock_threshold
+      );
+    if (filter === "nostock")
+      filtered = filtered.filter((i) => i.total_stock - i.reserved_stock <= 0);
     return filtered;
   };
 
   const filteredFood = applyFilters(foodItems);
 
+  // Metrics
+  const totalCount = foodItems.length;
+  const inStockCount = foodItems.filter(
+    (i) => i.total_stock - i.reserved_stock > i.low_stock_threshold
+  ).length;
+  const lowStockCount = foodItems.filter((i) => {
+    const avail = i.total_stock - i.reserved_stock;
+    return avail > 0 && avail <= i.low_stock_threshold;
+  }).length;
+  const outOfStockCount = foodItems.filter(
+    (i) => i.total_stock - i.reserved_stock <= 0
+  ).length;
+
   return (
-    <div className="page">
-      <div className="topbar">
-        <h1>STOCK &amp; INVENTORY</h1>
-        <Link to="/dashboard" className="btn-secondary">Back</Link>
+    <AppLayout
+      title="STOCK &amp; INVENTORY MANAGEMENT"
+      subtitle="Atomic multi-tier stock tracking • Live reserved stock vs available on shelf"
+      showBack
+      actions={
+        <button className="btn-secondary" onClick={load} style={{ fontSize: "0.825rem" }}>
+          ↻ Refresh Stock
+        </button>
+      }
+    >
+      {/* ── Metric Summary Tiles ── */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+          gap: "1.25rem",
+          marginBottom: "1.75rem",
+        }}
+      >
+        <StatCard
+          label="Catalog Tracked"
+          value={totalCount}
+          subValue="Active menu items"
+          accentColor="indigo"
+          icon={<InventoryIcon size={18} />}
+        />
+        <StatCard
+          label="Optimal Stock"
+          value={inStockCount}
+          subValue="Above alert limit"
+          accentColor="success"
+          badge="HEALTHY"
+        />
+        <StatCard
+          label="Low Stock Warning"
+          value={lowStockCount}
+          subValue="At or below limit"
+          accentColor="primary"
+          badge="REORDER SOON"
+        />
+        <StatCard
+          label="Out of Stock"
+          value={outOfStockCount}
+          subValue="Zero available units"
+          accentColor="danger"
+          badge="ACTION REQUIRED"
+        />
       </div>
 
-      <div className="card mb-4 row" style={{ gap: '1rem', display: 'flex' }}>
-        <input
-          className="input-field"
-          style={{ flex: 3 }}
-          placeholder="🔍 Search items..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      {/* ── Filter Bar ── */}
+      <div
+        className="card-3d mb-4 row"
+        style={{
+          gap: "1rem",
+          display: "flex",
+          padding: "1rem 1.25rem",
+          background: "var(--bg-surface-2)",
+        }}
+      >
+        <div className="search-wrapper" style={{ flex: 3 }}>
+          <div className="search-icon-inside">
+            <SearchIcon size={18} />
+          </div>
+          <input
+            className="search-input search-input-padded"
+            placeholder="Search items by name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
         <select
           className="input-field"
-          style={{ flex: 1, minWidth: '200px' }}
+          style={{ flex: 1, minWidth: "220px" }}
           value={filter}
-          onChange={e => setFilter(e.target.value)}
+          onChange={(e) => setFilter(e.target.value)}
         >
-          <option value="all">All Stock</option>
-          <option value="instock">In Stock</option>
-          <option value="lowstock">Low Stock</option>
-          <option value="nostock">No Stock (0)</option>
+          <option value="all">All Inventory ({foodItems.length})</option>
+          <option value="instock">In Stock Only</option>
+          <option value="lowstock">Low Stock Alerts ({lowStockCount})</option>
+          <option value="nostock">Out of Stock (0 Available)</option>
         </select>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: '1fr 400px' }}>
-        <div className="card">
-          <h3>🍱 Food Items Stock</h3>
-          <table className="data-table">
-            <thead>
-              <tr><th>S.No</th><th>Item</th><th>Total</th><th>Reserved</th><th>Available</th><th>Alert Limit</th><th>Status</th></tr>
-            </thead>
-            <tbody>
-              {filteredFood.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center' }}>No items match your criteria</td></tr>}
-              {filteredFood.map((f, i) => {
-                const avail = f.total_stock - f.reserved_stock;
-                return (
-                  <tr key={f.id}>
-                    <td style={{ fontWeight: 800, color: 'var(--text-muted)' }}>{i + 1}</td>
-                    <td style={{ fontWeight: 700 }}>{f.name}</td>
-                    <td><StockControl item={f} onUpdate={updateStockAbsolute} /></td>
-                    <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{f.reserved_stock}</td>
-                    <td style={{ fontWeight: 900, fontSize: '1.1rem' }}>{avail}</td>
-                    <td><ThresholdControl item={f} onUpdate={updateStockAbsolute} /></td>
-                    <td>
-                      {avail <= 0 ? <span className="badge badge-danger">OUT OF STOCK</span> :
-                        avail <= f.low_stock_threshold ? <span className="badge badge-occupied">LOW STOCK</span> :
-                          <span className="badge badge-free">IN STOCK</span>}
+      {/* ── Two-Column Inventory Layout ── */}
+      <div className="grid" style={{ gridTemplateColumns: "1fr 380px", gap: "1.75rem" }}>
+        {/* Left: Inventory Data Table */}
+        <div className="card-3d" style={{ padding: 0, overflow: "hidden" }}>
+          <div
+            style={{
+              padding: "1.25rem 1.5rem",
+              borderBottom: "1px solid var(--border-subtle)",
+              background: "var(--bg-surface-1)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0, fontSize: "1.15rem" }}>Food Inventory Catalog</h3>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Showing {filteredFood.length} of {foodItems.length} items
+              </span>
+            </div>
+          </div>
+
+          <div className="data-table-wrapper" style={{ border: "none", borderRadius: 0 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: "50px" }}>#</th>
+                  <th>Dish Item</th>
+                  <th style={{ textAlign: "center" }}>Total Stock</th>
+                  <th style={{ textAlign: "center" }}>Reserved</th>
+                  <th style={{ textAlign: "center" }}>Available</th>
+                  <th style={{ textAlign: "center" }}>Alert Limit</th>
+                  <th>Stock Health</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredFood.length === 0 && (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: "3rem", color: "var(--text-muted)" }}>
+                      No inventory items match your filter
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                )}
+                {filteredFood.map((f, i) => {
+                  const avail = f.total_stock - f.reserved_stock;
+                  const isOutOfStock = avail <= 0;
+                  const isLow = avail > 0 && avail <= f.low_stock_threshold;
+
+                  return (
+                    <tr key={f.id}>
+                      <td style={{ fontWeight: 800, color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                        {i + 1}
+                      </td>
+                      <td>
+                        <strong style={{ fontSize: "0.95rem" }}>{f.name}</strong>
+                        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                          {f.category || "General"}
+                        </div>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <StockControl item={f} onUpdate={updateStockAbsolute} />
+                      </td>
+                      <td style={{ textAlign: "center", color: "var(--primary)", fontWeight: 800 }}>
+                        {f.reserved_stock}
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span
+                          style={{
+                            fontFamily: "Outfit, sans-serif",
+                            fontSize: "1.25rem",
+                            fontWeight: 900,
+                            color: isOutOfStock
+                              ? "var(--danger)"
+                              : isLow
+                              ? "var(--amber-gold)"
+                              : "var(--success)",
+                          }}
+                        >
+                          {avail}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <ThresholdControl item={f} onUpdate={updateStockAbsolute} />
+                      </td>
+                      <td>
+                        {isOutOfStock ? (
+                          <span className="badge badge-danger">OUT OF STOCK</span>
+                        ) : isLow ? (
+                          <span
+                            className="badge"
+                            style={{
+                              background: "var(--primary-subtle)",
+                              color: "var(--primary)",
+                              border: "1px solid rgba(244,123,56,0.3)",
+                            }}
+                          >
+                            LOW STOCK
+                          </span>
+                        ) : (
+                          <span className="badge badge-free">IN STOCK</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div className="card" style={{ height: 'fit-content', position: 'sticky', top: '2rem' }}>
-          <h3>⚡ Quick Update</h3>
-          <form onSubmit={handleUpdate}>
-            <div className="form-group">
-              <label>Select Item</label>
-              <select className="input-field" value={txn.id} onChange={e => setTxn({ ...txn, id: parseInt(e.target.value) })}>
-                <option value={0}>-- Select --</option>
-                {foodItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-              </select>
+        {/* Right: Quick Stock In / Out Adjustment Card */}
+        <div>
+          <div
+            className="card-3d"
+            style={{ position: "sticky", top: "85px", background: "var(--bg-surface-2)" }}
+          >
+            <div style={{ marginBottom: "1.25rem", borderBottom: "1px solid var(--border-subtle)", paddingBottom: "1rem" }}>
+              <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>
+                ⚡ Quick Stock Adjustment
+              </h3>
+              <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Fast batch receipt or manual wastage write-off
+              </p>
             </div>
-            <div className="form-group">
-              <label>Type</label>
-              <div className="row">
-                <button type="button" className={`btn-secondary flex-1 ${txn.type === 'in' ? 'active-success' : ''}`} onClick={() => setTxn({ ...txn, type: 'in' })}>STOCK IN</button>
-                <button type="button" className={`btn-secondary flex-1 ${txn.type === 'out' ? 'active-danger' : ''}`} onClick={() => setTxn({ ...txn, type: 'out' })}>STOCK OUT</button>
+
+            <form onSubmit={handleUpdate}>
+              <div className="form-group">
+                <label>SELECT DISH ITEM</label>
+                <select
+                  className="input-field"
+                  value={txn.id}
+                  onChange={(e) => setTxn({ ...txn, id: parseInt(e.target.value) })}
+                  required
+                >
+                  <option value={0}>-- Select Dish --</option>
+                  {foodItems.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.name} (Cur: {i.total_stock - i.reserved_stock})
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
-            <div className="form-group">
-              <label>Quantity</label>
-              <input type="number" className="input-field" value={txn.quantity} onChange={e => setTxn({ ...txn, quantity: parseFloat(e.target.value) })} />
-            </div>
-            <button className="btn-primary mt-4" style={{ width: '100%' }} disabled={!txn.id}>UPDATE STOCK</button>
-          </form>
+
+              <div className="form-group">
+                <label>ADJUSTMENT DIRECTION</label>
+                <div className="row" style={{ gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className={`btn-secondary flex-1 ${txn.type === "in" ? "active-success" : ""}`}
+                    onClick={() => setTxn({ ...txn, type: "in" })}
+                  >
+                    + STOCK IN
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondary flex-1 ${txn.type === "out" ? "active-danger" : ""}`}
+                    onClick={() => setTxn({ ...txn, type: "out" })}
+                  >
+                    - STOCK OUT
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>QUANTITY UNITS</label>
+                <input
+                  type="number"
+                  min="0.1"
+                  step="any"
+                  className="input-field"
+                  value={txn.quantity || ""}
+                  onChange={(e) => setTxn({ ...txn, quantity: parseFloat(e.target.value) || 0 })}
+                  placeholder="e.g. 20"
+                  required
+                />
+              </div>
+
+              <button
+                className="btn-primary mt-4"
+                style={{ width: "100%", height: "3.5rem", fontSize: "1rem" }}
+                disabled={!txn.id || !txn.quantity}
+              >
+                APPLY STOCK ADJUSTMENT
+              </button>
+            </form>
+          </div>
         </div>
       </div>
-    </div>
+    </AppLayout>
   );
 }
 
-// ─── StockControl ─────────────────────────────────────────────────────────────
-// Uses a debounced ref pattern: local optimistic value updates instantly on
-// +/- clicks; a 600ms debounce fires one single API call with the final value.
-// This prevents race conditions from rapid clicks all reading stale item.quantity.
-function StockControl({ item, onUpdate }: { item: any; onUpdate: (item: any, field: string, value: number) => void }) {
+// ─── StockControl Component (Preserved debounced logic with 3D styling) ───────
+function StockControl({
+  item,
+  onUpdate,
+}: {
+  item: any;
+  onUpdate: (item: any, field: string, value: number) => void;
+}) {
   const [val, setVal] = useState<number>(item.total_stock);
   const pendingRef = useRef<number>(item.total_stock);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sync when parent reloads data (after API round-trip)
   useEffect(() => {
     setVal(item.total_stock);
     pendingRef.current = item.total_stock;
   }, [item.total_stock]);
-  
+
   const commit = (newVal: number) => {
     if (newVal < 0) return;
     pendingRef.current = newVal;
@@ -173,57 +399,92 @@ function StockControl({ item, onUpdate }: { item: any; onUpdate: (item: any, fie
   };
 
   return (
-    <div style={{ display: 'flex', gap: '0.25rem', alignItems: 'center' }}>
+    <div style={{ display: "inline-flex", gap: "0.35rem", alignItems: "center" }}>
       <button
-        className="btn-secondary qty-btn"
-        style={{ padding: '0.2rem 0.5rem', minWidth: '30px' }}
+        className="qty-btn"
+        style={{ width: "26px", height: "26px" }}
         onClick={() => commit(pendingRef.current - 1)}
-      >-</button>
+        title="Decrease Total Stock"
+      >
+        <MinusIcon size={12} />
+      </button>
+
       <input
         type="number"
         className="input-field"
-        style={{ width: '55px', padding: '0.15rem', textAlign: 'center', margin: 0 }}
+        style={{
+          width: "60px",
+          padding: "0.25rem",
+          textAlign: "center",
+          fontWeight: 800,
+          margin: 0,
+          background: "var(--bg-surface-3)",
+        }}
         value={val}
-        onChange={e => {
+        onChange={(e) => {
           const n = parseFloat(e.target.value);
           if (!isNaN(n)) commit(n);
           else setVal(0);
         }}
-        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
         onBlur={() => {
-          // Flush immediately on blur without waiting for debounce
           if (timerRef.current) clearTimeout(timerRef.current);
           if (pendingRef.current !== item.total_stock) {
             onUpdate(item, "total_stock", pendingRef.current);
           }
         }}
       />
+
       <button
-        className="btn-secondary qty-btn"
-        style={{ padding: '0.2rem 0.5rem', minWidth: '30px' }}
+        className="qty-btn"
+        style={{ width: "26px", height: "26px" }}
         onClick={() => commit(pendingRef.current + 1)}
-      >+</button>
+        title="Increase Total Stock"
+      >
+        <PlusIcon size={12} />
+      </button>
     </div>
   );
 }
 
-// ─── ThresholdControl ─────────────────────────────────────────────────────────
-function ThresholdControl({ item, onUpdate }: { item: any; onUpdate: (item: any, field: string, value: number) => void }) {
+// ─── ThresholdControl Component ──────────────────────────────────────────────
+function ThresholdControl({
+  item,
+  onUpdate,
+}: {
+  item: any;
+  onUpdate: (item: any, field: string, value: number) => void;
+}) {
   const [val, setVal] = useState<number>(item.low_stock_threshold);
 
-  useEffect(() => { setVal(item.low_stock_threshold); }, [item.low_stock_threshold]);
+  useEffect(() => {
+    setVal(item.low_stock_threshold);
+  }, [item.low_stock_threshold]);
 
   return (
     <input
       type="number"
       className="input-field"
-      style={{ width: '50px', padding: '0.2rem', textAlign: 'center', margin: 0, borderStyle: 'dashed' }}
+      style={{
+        width: "55px",
+        padding: "0.25rem",
+        textAlign: "center",
+        margin: "0 auto",
+        borderStyle: "dashed",
+        borderColor: "var(--border-medium)",
+        background: "transparent",
+      }}
       value={val}
-      onChange={e => setVal(parseFloat(e.target.value))}
-      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      onChange={(e) => setVal(parseFloat(e.target.value))}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
       onBlur={() => {
         let n = parseFloat(val as unknown as string);
-        if (!isNaN(n) && n !== item.low_stock_threshold) onUpdate(item, 'low_stock_threshold', n);
+        if (!isNaN(n) && n !== item.low_stock_threshold)
+          onUpdate(item, "low_stock_threshold", n);
       }}
       title="Edit Low Stock Alert Limit"
     />

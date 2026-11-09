@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import require_roles
-from app.db.models import Order, OrderItem, Product, DiningTable
+from app.db.models import Order, OrderItem, Product, DiningTable, SeatingSession
 from app.db.session import get_db
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -22,6 +22,7 @@ class OrderItemIn(BaseModel):
 class CreateOrderIn(BaseModel):
     type: str  # dine_in | takeaway
     table_id: int | None = None
+    seating_session_id: Optional[int] = None
     items: List[OrderItemIn]
     waiter_note: str | None = None  # Optional special instruction for kitchen
 
@@ -44,12 +45,90 @@ def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depend
     # NEW: Default to 'confirmed' so it hits the kitchen immediately
     status = "confirmed" if payload.items else "pending"
     
+    final_table_id = payload.table_id
+    final_note = payload.waiter_note or None
+    if payload.seating_session_id:
+        session = db.get(SeatingSession, payload.seating_session_id)
+        if session:
+            final_table_id = session.table_id
+            party_session_ids = [session.id]
+            if session.party_code:
+                party_sessions = (
+                    db.query(SeatingSession)
+                    .filter(
+                        SeatingSession.party_code == session.party_code,
+                        SeatingSession.status.in_(["active", "bill_requested"]),
+                    )
+                    .all()
+                )
+                if party_sessions:
+                    party_session_ids = [ps.id for ps in party_sessions]
+
+                # Check if an active order already exists for this multi-table party
+                existing_order = (
+                    db.query(Order)
+                    .filter(
+                        Order.seating_session_id.in_(party_session_ids),
+                        Order.status.notin_(["completed", "cancelled"]),
+                    )
+                    .order_by(Order.created_at.desc())
+                    .first()
+                )
+                if existing_order:
+                    # Append items to the existing shared group order
+                    for i in payload.items:
+                        res = db.execute(
+                            text("""
+                                UPDATE products 
+                                SET reserved_stock = reserved_stock + :qty
+                                WHERE id = :id AND (total_stock - reserved_stock) >= :qty
+                            """),
+                            {"qty": i.quantity, "id": i.product_id}
+                        )
+                        if res.rowcount == 0:
+                            p = db.get(Product, i.product_id)
+                            avail = (p.total_stock - p.reserved_stock) if p else 0
+                            raise HTTPException(
+                                status_code=400, 
+                                detail=f"Insufficient stock for {p.name if p else 'Item'}. Available: {avail}, Requested: {i.quantity}"
+                            )
+                        existing_item = db.query(OrderItem).filter(
+                            OrderItem.order_id == existing_order.id, 
+                            OrderItem.product_id == i.product_id,
+                            OrderItem.status == "new"
+                        ).first()
+                        if existing_item:
+                            existing_item.quantity += i.quantity
+                        else:
+                            product = db.get(Product, i.product_id)
+                            db.add(OrderItem(order_id=existing_order.id, product_id=i.product_id, quantity=i.quantity, price=product.price, status="new"))
+                    
+                    existing_order.status = "confirmed"
+                    db.commit()
+                    db.refresh(existing_order)
+                    return existing_order
+
+                # Format multi-table label with real table names
+                table_parts = []
+                for ps in party_sessions:
+                    t = db.get(DiningTable, ps.table_id)
+                    tname = t.name if t else f"Table {ps.table_id}"
+                    table_parts.append(f"{tname} (Seats {ps.selected_seats})")
+                group_tag = f"[{session.group_name} • {', '.join(table_parts)}]"
+            else:
+                t = db.get(DiningTable, session.table_id)
+                tname = t.name if t else f"Table {session.table_id}"
+                group_tag = f"[{session.group_name} • {tname} Seats {session.selected_seats}]"
+
+            final_note = f"{group_tag} {payload.waiter_note}" if payload.waiter_note else group_tag
+
     order = Order(
         type=payload.type, 
-        table_id=payload.table_id, 
+        table_id=final_table_id,
+        seating_session_id=payload.seating_session_id,
         token_number=token, 
         status=status, 
-        waiter_note=payload.waiter_note or None,
+        waiter_note=final_note,
         created_at=datetime.utcnow()
     )
     db.add(order)
@@ -67,7 +146,6 @@ def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depend
             {"qty": i.quantity, "id": i.product_id}
         )
         if res.rowcount == 0:
-            # Check why it failed to give a better error message
             p = db.get(Product, i.product_id)
             avail = (p.total_stock - p.reserved_stock) if p else 0
             raise HTTPException(
@@ -78,8 +156,8 @@ def create_order(payload: CreateOrderIn, db: Session = Depends(get_db), _=Depend
         product = db.get(Product, i.product_id)
         db.add(OrderItem(order_id=order.id, product_id=i.product_id, quantity=i.quantity, price=product.price))
     
-    if payload.type == "dine_in" and payload.table_id:
-        table = db.get(DiningTable, payload.table_id)
+    if payload.type == "dine_in" and final_table_id:
+        table = db.get(DiningTable, final_table_id)
         if table:
             table.status = "occupied"
             table.active_order_id = order.id
@@ -158,12 +236,43 @@ def update_order_status(order_id: int, status: str, db: Session = Depends(get_db
             if item.status not in ["completed", "cancelled", "delivered"]:
                 item.status = status
 
+    if status == "bill_requested" and order.seating_session_id:
+        session = db.get(SeatingSession, order.seating_session_id)
+        if session:
+            session.status = "bill_requested"
+            if session.party_code:
+                siblings = (
+                    db.query(SeatingSession)
+                    .filter(
+                        SeatingSession.party_code == session.party_code,
+                        SeatingSession.status == "active",
+                    )
+                    .all()
+                )
+                for sib in siblings:
+                    sib.status = "bill_requested"
+
     
     if status == "cancelled" and order.table_id:
-        table = db.get(DiningTable, order.table_id)
-        if table:
-            table.status = "free"
-            table.active_order_id = None
+        if order.seating_session_id:
+            session = db.get(SeatingSession, order.seating_session_id)
+            if session:
+                session.status = "cancelled"
+            remaining = db.query(SeatingSession).filter(
+                SeatingSession.table_id == order.table_id,
+                SeatingSession.id != order.seating_session_id,
+                SeatingSession.status.in_(["active", "bill_requested"])
+            ).count()
+            if remaining == 0:
+                table = db.get(DiningTable, order.table_id)
+                if table:
+                    table.status = "free"
+                    table.active_order_id = None
+        else:
+            table = db.get(DiningTable, order.table_id)
+            if table:
+                table.status = "free"
+                table.active_order_id = None
             
     db.commit()
     return order

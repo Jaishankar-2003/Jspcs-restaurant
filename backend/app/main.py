@@ -58,6 +58,32 @@ def startup():
             except Exception as e:
                 print(f"DEBUG: Column addition failed: {e}")
 
+            # Add seating_sessions and orders.seating_session_id
+            try:
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS seating_sessions (
+                        id SERIAL PRIMARY KEY,
+                        table_id INTEGER NOT NULL REFERENCES tables(id) ON DELETE CASCADE,
+                        group_name VARCHAR(100) NOT NULL,
+                        guest_count INTEGER NOT NULL DEFAULT 1,
+                        selected_seats VARCHAR(255) NOT NULL,
+                        seating_mode VARCHAR(30) NOT NULL DEFAULT 'individual',
+                        phone_number VARCHAR(30),
+                        customer_notes TEXT,
+                        status VARCHAR(20) NOT NULL DEFAULT 'active',
+                        created_by VARCHAR(50),
+                        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                        completed_at TIMESTAMP
+                    );
+                """))
+                conn.execute(text("ALTER TABLE orders ADD COLUMN IF NOT EXISTS seating_session_id INTEGER REFERENCES seating_sessions(id) ON DELETE SET NULL;"))
+                # Multi-table party linking (nullable, backward compatible)
+                conn.execute(text("ALTER TABLE seating_sessions ADD COLUMN IF NOT EXISTS party_code VARCHAR(40);"))
+                conn.commit()
+                print("DEBUG: SEATING SESSIONS TABLE & ORDER RELATION ADDED/VERIFIED")
+            except Exception as e:
+                print(f"DEBUG: Seating sessions addition failed: {e}")
+
         role_names = ["admin", "cashier", "kitchen", "manager"]
         for role_name in role_names:
             if not db.query(Role).filter(Role.name == role_name).first():

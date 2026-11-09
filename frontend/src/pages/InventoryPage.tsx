@@ -253,8 +253,8 @@ export default function InventoryPage() {
                             color: isOutOfStock
                               ? "var(--danger)"
                               : isLow
-                              ? "var(--amber-gold)"
-                              : "var(--success)",
+                                ? "var(--amber-gold)"
+                                : "var(--success)",
                           }}
                         >
                           {avail}
